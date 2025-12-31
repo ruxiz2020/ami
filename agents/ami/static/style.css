@@ -1,0 +1,182 @@
+:root {
+  --bg-main: #fafafa;
+  --card-bg: #ffffff;
+  --ami-bg: #f4f6f8;
+  --accent: #a3c4bc;        /* soft sage */
+  --accent-light: #e8f1ee;
+  --text-main: #333;
+  --text-muted: #777;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-main);
+  color: var(--text-main);
+}
+
+.container {
+  max-width: 900px;
+  margin: 40px auto;
+}
+
+header {
+  margin-bottom: 20px;
+}
+
+.subtitle {
+  color: #777;
+}
+
+main {
+  display: flex;
+  gap: 24px;
+}
+
+.chat {
+  flex: 2;
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.chat-log {
+  min-height: 200px;
+  margin-bottom: 12px;
+}
+
+.ami-msg {
+  background: #f1f3f5;
+  padding: 10px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.chat-input {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 8px;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  font-size: 0.95em;
+}
+
+.chat-input input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.chat-input button {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.chat-input button:hover {
+  opacity: 0.9;
+}
+
+
+.timeline {
+  flex: 1;
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.timeline-item {
+  margin-bottom: 14px;
+  padding-left: 10px;
+  border-left: 3px solid var(--accent-light);
+}
+
+.timeline-date {
+  color: var(--text-muted);
+  font-size: 0.75em;
+  margin-bottom: 2px;
+}
+
+.chat,
+.timeline {
+  background: var(--card-bg);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.04);
+}
+
+.ami-msg {
+  background: var(--ami-bg);
+  padding: 12px 14px;
+  border-radius: 14px;
+  margin-bottom: 10px;
+  max-width: 85%;
+  line-height: 1.5;
+  position: relative;
+}
+
+.ami-msg::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 14px;
+  width: 10px;
+  height: 10px;
+  background: var(--ami-bg);
+  border-radius: 50%;
+}
+
+.fade-in {
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+
+.ami-avatar {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.8;
+  animation: breathe 3s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+@keyframes breathe {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+}
+

@@ -1,0 +1,8 @@
+# Web framework
+flask>=3.0.0
+
+# Gemini LLM
+google-generativeai>=0.7.2
+
+# Environment & config
+python-dotenv>=1.0.1

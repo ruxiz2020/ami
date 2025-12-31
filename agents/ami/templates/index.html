@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ami</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>Ami</h1>
+    <p class="subtitle">A gentle place to notice today</p>
+  </header>
+
+  <main>
+    <!-- Chat -->
+    <section class="chat">
+      <div id="chat-log" class="chat-log">
+        <div class="ami-msg">
+          <span class="ami-avatar"></span>
+          <span class="ami-text">
+            Hi. I’m here if you’d like to note something you noticed today.
+          </span>
+        </div>
+      </div>
+
+      <div class="chat-input">
+        <input
+          id="chat-text"
+          type="text"
+          placeholder="Type something you noticed…"
+          aria-label="Message Ami"
+          onkeydown="if (event.key === 'Enter') sendMessage();"
+        />
+        <button onclick="sendMessage()">Send</button>
+      </div>
+    </section>
+
+    <!-- Timeline -->
+    <aside class="timeline">
+      <h3>Timeline</h3>
+      <div id="timeline"></div>
+    </aside>
+  </main>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
