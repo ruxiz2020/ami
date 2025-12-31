@@ -18,6 +18,9 @@ from agents.ami.storage import (
     get_all_observations
 )
 
+from agents.ami.sync.sync_service import sync_observations_to_sheets
+
+
 # -------------------------------------------------
 # Setup
 # -------------------------------------------------
@@ -147,6 +150,20 @@ def update_observation_route(obs_id):
 
     update_observation(obs_id, new_text)
     return jsonify({"status": "updated"})
+
+
+
+@app.route("/api/sync/google", methods=["POST"])
+def sync_google_sheets():
+    payload = request.json or {}
+    sheet_id = payload.get("spreadsheet_id")
+
+    if not sheet_id:
+        return jsonify({"error": "Missing spreadsheet_id"}), 400
+
+    result = sync_observations_to_sheets(sheet_id)
+    return jsonify(result)
+
 
 
 
