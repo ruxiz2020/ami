@@ -180,3 +180,37 @@ main {
   }
 }
 
+.save-actions {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.save-actions button {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: none;
+  background: #a3c4bc;
+  color: white;
+  cursor: pointer;
+}
+
+.save-actions button.secondary {
+  background: #e0e0e0;
+  color: #333;
+}
+
+
+.user-msg {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.user-text {
+  background: #dfeee8;
+  padding: 10px 14px;
+  border-radius: 14px;
+  max-width: 80%;
+  line-height: 1.4;
+}

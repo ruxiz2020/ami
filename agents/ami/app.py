@@ -5,12 +5,20 @@ from pathlib import Path
 from dotenv import load_dotenv
 import logging
 import os
-import google.generativeai as genai
+from google import genai
 
 from agents.ami.prompt_loader import (
     load_system_prompt,
     load_developer_prompt
 )
+
+from agents.ami.storage import (
+    init_db,
+    add_observation,
+    get_recent_observations,
+    get_all_observations
+)
+
 
 # -------------------------------------------------
 # Setup
@@ -24,9 +32,12 @@ logger = logging.getLogger(__name__)
 if not os.getenv("GEMINI_API_KEY"):
     logger.warning("GEMINI_API_KEY is not set. Gemini calls will fail.")
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
 
 app = Flask(__name__)
+
+init_db()
 
 BASE_DIR = Path(__file__).parent
 DATA_FILE = BASE_DIR / "data" / "observations.json"
@@ -60,65 +71,70 @@ def index():
 
 @app.route("/api/observations", methods=["GET"])
 def get_observations():
-    return jsonify(load_observations())
+    return jsonify(get_all_observations())
 
 
 @app.route("/api/observations", methods=["POST"])
-def add_observation():
+def add_observation_route():
     payload = request.json or {}
     text = payload.get("text", "").strip()
 
     if not text:
         return jsonify({"error": "Empty observation"}), 400
 
-    observations = load_observations()
-    observations.insert(0, {
-        "text": text,
-        "domain": payload.get("domain", "General"),
-        "date": datetime.now().strftime("%Y-%m-%d")
-    })
-
-    save_observations(observations)
+    add_observation(text)
     return jsonify({"status": "saved"})
+
 
 # -------------------------------------------------
 # Ami LLM Logic
 # -------------------------------------------------
 
 def build_ami_context():
-    observations = load_observations()[:5]
+    observations = get_recent_observations(limit=5)
 
     if not observations:
         return ""
 
-    lines = [f"- {o['date']}: {o['text']}" for o in observations]
+    lines = [
+        f"- {o['date']}: {o['text']}"
+        for o in observations
+    ]
+
     return "Recent observations (from the parent):\n" + "\n".join(lines)
 
 
+
 def call_ami_llm(system_prompt, developer_prompt, context, user_message):
+    """
+    Gemini (google.genai) implementation for observational Ami.
+    """
+
     prompt_parts = [
         "SYSTEM ROLE:\n" + system_prompt,
         "\nDEVELOPER RULES:\n" + developer_prompt,
     ]
 
     if context:
-        prompt_parts.append("\nCONTEXT (parent-provided observations only):\n" + context)
+        prompt_parts.append(
+            "\nCONTEXT (parent-provided observations only):\n" + context
+        )
 
     prompt_parts.append("\nUSER MESSAGE:\n" + user_message)
 
     full_prompt = "\n\n".join(prompt_parts)
 
     try:
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            generation_config={
+        response = client.models.generate_content(
+            model="models/gemini-2.5-flash",
+            contents=full_prompt,
+            config={
                 "temperature": 0.2,
                 "top_p": 0.9,
                 "max_output_tokens": 300,
             },
         )
 
-        response = model.generate_content(full_prompt)
         return response.text.strip()
 
     except Exception as e:
@@ -127,6 +143,7 @@ def call_ami_llm(system_prompt, developer_prompt, context, user_message):
             "I’m having a little trouble responding right now. "
             "Nothing is lost — we can try again later."
         )
+
 
 # -------------------------------------------------
 # Chat endpoint

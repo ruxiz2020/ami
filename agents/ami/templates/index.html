@@ -26,6 +26,12 @@
         </div>
       </div>
 
+      <!-- Save confirmation (hidden by default) -->
+      <div id="save-actions" class="save-actions" style="display: none;">
+        <button onclick="confirmSave()">Save</button>
+        <button class="secondary" onclick="dismissSave()">Not now</button>
+      </div>
+
       <div class="chat-input">
         <input
           id="chat-text"
