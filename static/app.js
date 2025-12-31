@@ -13,18 +13,19 @@ async function loadTimeline() {
     data.forEach(item => {
       const div = document.createElement("div");
       div.className = "timeline-item";
+      div.dataset.id = item.id;
 
-      const dateDiv = document.createElement("div");
-      dateDiv.className = "timeline-date";
-      dateDiv.textContent = item.date;
+      div.innerHTML = `
+        <div class="timeline-date">${item.date}</div>
+        <div class="timeline-domain">${item.domain}</div>
+        <div class="timeline-text">${item.text}</div>
+        <button class="edit-btn" onclick="startEdit(${item.id})">✏️ Edit</button>
+      `;
 
-      const textDiv = document.createElement("div");
-      textDiv.textContent = item.text;
-
-      div.appendChild(dateDiv);
-      div.appendChild(textDiv);
-      timeline.appendChild(div);
+          timeline.appendChild(div);
     });
+
+
   } catch (err) {
     console.error("Failed to load timeline", err);
   }
@@ -202,3 +203,39 @@ async function confirmSave() {
   pendingObservation = null;
   loadTimeline();
 }
+
+function startEdit(id) {
+  const item = document.querySelector(`.timeline-item[data-id="${id}"]`);
+  const textDiv = item.querySelector(".timeline-text");
+  const originalText = textDiv.textContent;
+
+  textDiv.innerHTML = `
+    <textarea class="edit-textarea">${originalText}</textarea>
+    <div class="edit-actions">
+      <button onclick="saveEdit(${id})">Save changes</button>
+      <button class="secondary" onclick="cancelEdit(${id}, \`${originalText}\`)">Cancel</button>
+    </div>
+  `;
+}
+
+async function saveEdit(id) {
+  const item = document.querySelector(`.timeline-item[data-id="${id}"]`);
+  const textarea = item.querySelector(".edit-textarea");
+  const newText = textarea.value.trim();
+
+  if (!newText) return;
+
+  await fetch(`/api/observations/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: newText })
+  });
+
+  loadTimeline();
+}
+
+function cancelEdit(id, originalText) {
+  const item = document.querySelector(`.timeline-item[data-id="${id}"]`);
+  item.querySelector(".timeline-text").textContent = originalText;
+}
+

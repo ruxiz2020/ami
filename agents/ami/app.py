@@ -1,24 +1,22 @@
 from flask import Flask, render_template, request, jsonify
-import json
-from datetime import datetime
-from pathlib import Path
 from dotenv import load_dotenv
 import logging
 import os
+from pathlib import Path
 from google import genai
 
-from agents.ami.prompt_loader import (
+from agents.ami.prompts.prompt_loader import (
     load_system_prompt,
     load_developer_prompt
 )
 
 from agents.ami.storage import (
     init_db,
+    update_observation,
     add_observation,
     get_recent_observations,
     get_all_observations
 )
-
 
 # -------------------------------------------------
 # Setup
@@ -34,31 +32,15 @@ if not os.getenv("GEMINI_API_KEY"):
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    template_folder=str(ROOT_DIR / "templates"),
+    static_folder=str(ROOT_DIR / "static"),
+)
 
 init_db()
-
-BASE_DIR = Path(__file__).parent
-DATA_FILE = BASE_DIR / "data" / "observations.json"
-DATA_FILE.parent.mkdir(exist_ok=True)
-
-if not DATA_FILE.exists():
-    DATA_FILE.write_text("[]", encoding="utf-8")
-
-# -------------------------------------------------
-# Storage helpers
-# -------------------------------------------------
-
-def load_observations():
-    try:
-        return json.loads(DATA_FILE.read_text(encoding="utf-8"))
-    except Exception as e:
-        logger.error(f"Failed to load observations: {e}")
-        return []
-
-def save_observations(data):
-    DATA_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 # -------------------------------------------------
 # Routes
@@ -85,31 +67,20 @@ def add_observation_route():
     add_observation(text)
     return jsonify({"status": "saved"})
 
-
 # -------------------------------------------------
 # Ami LLM Logic
 # -------------------------------------------------
 
 def build_ami_context():
     observations = get_recent_observations(limit=5)
-
     if not observations:
         return ""
 
-    lines = [
-        f"- {o['date']}: {o['text']}"
-        for o in observations
-    ]
-
+    lines = [f"- {o['date']}: {o['text']}" for o in observations]
     return "Recent observations (from the parent):\n" + "\n".join(lines)
 
 
-
 def call_ami_llm(system_prompt, developer_prompt, context, user_message):
-    """
-    Gemini (google.genai) implementation for observational Ami.
-    """
-
     prompt_parts = [
         "SYSTEM ROLE:\n" + system_prompt,
         "\nDEVELOPER RULES:\n" + developer_prompt,
@@ -134,7 +105,6 @@ def call_ami_llm(system_prompt, developer_prompt, context, user_message):
                 "max_output_tokens": 300,
             },
         )
-
         return response.text.strip()
 
     except Exception as e:
@@ -143,7 +113,6 @@ def call_ami_llm(system_prompt, developer_prompt, context, user_message):
             "I’m having a little trouble responding right now. "
             "Nothing is lost — we can try again later."
         )
-
 
 # -------------------------------------------------
 # Chat endpoint
@@ -165,6 +134,21 @@ def ami_chat():
     )
 
     return jsonify({"reply": reply})
+
+
+
+@app.route("/api/observations/<int:obs_id>", methods=["PUT"])
+def update_observation_route(obs_id):
+    payload = request.json or {}
+    new_text = payload.get("text", "").strip()
+
+    if not new_text:
+        return jsonify({"error": "Empty text"}), 400
+
+    update_observation(obs_id, new_text)
+    return jsonify({"status": "updated"})
+
+
 
 # -------------------------------------------------
 # Entry point

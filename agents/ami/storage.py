@@ -95,7 +95,7 @@ def get_all_observations():
     cur = conn.cursor()
 
     cur.execute("""
-    SELECT date, domain, text
+    SELECT id, date, domain, text
     FROM observations
     ORDER BY created_at DESC
     """)
@@ -104,6 +104,25 @@ def get_all_observations():
     conn.close()
 
     return [
-        {"date": r[0], "domain": r[1], "text": r[2]}
-        for r in rows
-    ]
+            {
+                "id": r[0],
+                "date": r[1],
+                "domain": r[2],
+                "text": r[3],
+            }
+            for r in rows
+        ]
+
+
+def update_observation(obs_id, new_text):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE observations
+        SET text = ?
+        WHERE id = ?
+    """, (new_text, obs_id))
+
+    conn.commit()
+    conn.close()

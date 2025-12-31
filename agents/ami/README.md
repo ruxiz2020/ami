@@ -10,7 +10,6 @@ From the project root:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-OPENAI_API_KEY=your_openai_api_key_here
 ```
 
 ### Run the app
@@ -23,5 +22,15 @@ python -m agents.ami.app
 
 ### Example conversations
 
+
+### Check data in db
+```bash
+cd /Users/XXX/ami
+sqlite3 agents/ami/data/ami.db
+.tables
+SELECT * FROM observations;
+
+
+```
 
 
