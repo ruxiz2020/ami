@@ -20,7 +20,22 @@ from agents.ami.storage import (
     set_meta_value,
 )
 
-from agents.ami.sync.sync_service import sync_observations_to_sheets
+from sync.sync_service import sync_rows_to_sheets
+from agents.ami.storage import get_all_observations
+
+
+
+SYNC_CONFIG = {
+    "ami": {
+        "spreadsheet_id": "1me9XfhpnwMVE_8slPgADtsVKtP9xK-cfoZmdy0qmAUA",
+        "sheet_tab": "observations",
+    },
+    "workbench": {
+        "spreadsheet_id": "1me9XfhpnwMVE_8slPgADtsVKtP9xK-cfoZmdy0qmAUA",
+        "sheet_tab": "workbench_notes",
+    }
+}
+
 
 
 # -------------------------------------------------
@@ -155,19 +170,23 @@ def ami_chat():
 # Sync
 # -------------------------------------------------
 
+
+
+
+ACTIVE_AGENT = "ami"  # later comes from UI/session
 @app.route("/api/sync/google", methods=["POST"])
 def sync_google_sheets():
-    payload = request.json or {}
-    logger.info(f"SYNC PAYLOAD: {payload}")
-    sheet_id = payload.get("spreadsheet_id")
+    cfg = SYNC_CONFIG[ACTIVE_AGENT]
 
-    if not sheet_id:
-        return jsonify({"error": "Missing spreadsheet_id"}), 400
+    rows = get_all_observations()  # ami storage
 
-    result = sync_observations_to_sheets(sheet_id)
+    result = sync_rows_to_sheets(
+        spreadsheet_id=cfg["spreadsheet_id"],
+        sheet_tab=cfg["sheet_tab"],
+        rows=rows,
+    )
 
     set_meta_value("last_sync_at", datetime.utcnow().isoformat())
-
     return jsonify(result)
 
 

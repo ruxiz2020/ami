@@ -227,9 +227,7 @@ async function syncNow() {
     const res = await fetch("/api/sync/google", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        spreadsheet_id: window.SYNC_SPREADSHEET_ID
-      })
+      body: JSON.stringify({})
     });
 
     const data = await res.json();

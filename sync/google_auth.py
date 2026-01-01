@@ -19,7 +19,8 @@ SCOPES = [
 ]
 
 TOKEN_PATH = Path.home() / ".ami_google_token.json"
-CLIENT_SECRET_PATH = Path("secrets/google_oauth_client.json")
+ROOT_DIR = Path(__file__).resolve().parents[1]
+CLIENT_SECRET_PATH = ROOT_DIR / "secrets" / "google_oauth_client.json"
 
 REDIRECT_URI = "http://localhost:8765"  # local-only, manual flow
 
