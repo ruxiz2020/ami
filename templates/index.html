@@ -55,19 +55,38 @@
       </div>
     </section>
 
-    <!-- Timeline -->
-    <aside class="timeline">
-      <h3>Timeline</h3>
-      <!-- Sync controls -->
-      <div class="sync-bar">
-        <button id="sync-btn" onclick="syncNow()">Sync now</button>
-        <span id="sync-status" class="sync-status">
-          Not synced yet
-        </span>
-      </div>
+    <div class="side-panel">
+      <!-- Timeline -->
+      <aside class="timeline">
+        <h3>Timeline</h3>
+        <!-- Sync controls -->
+        <div class="sync-bar">
+          <button id="sync-btn" onclick="syncNow()">Sync now</button>
+          <span id="sync-status" class="sync-status">
+            Not synced yet
+          </span>
+        </div>
 
-      <div id="timeline"></div>
-    </aside>
+        <div id="timeline"></div>
+      </aside>
+
+      <!-- Reflections -->
+      <aside class="reflections">
+        <h3>Reflections</h3>
+
+        <div class="reflection-controls">
+          <button onclick="loadReflections()">Refresh</button>
+          <button class="secondary" onclick="generateWeeklyReflection()">
+            Generate weekly reflection
+          </button>
+        </div>
+
+        <div id="reflections-list" class="reflections-list">
+          <p class="muted">No reflections yet.</p>
+        </div>
+      </aside>
+    </div>
+
 
   </main>
 </div>

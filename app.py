@@ -185,7 +185,7 @@ def call_llm(system_prompt, developer_prompt, context, user_message):
         config={
             "temperature": 0.2,
             "top_p": 0.9,
-            "max_output_tokens": 300,
+            "max_output_tokens": 600,
         },
     )
 

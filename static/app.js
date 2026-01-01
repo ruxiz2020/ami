@@ -120,11 +120,14 @@ async function sendMessage() {
 
     placeholder.querySelector(".ami-text").textContent = reply;
 
-    if (reply.toLowerCase().includes("save this observation")) {
+    if (reply.includes("[[ASK_TO_SAVE]]")) {
       showSaveActions();
+      placeholder.querySelector(".ami-text").textContent =
+        reply.replace("[[ASK_TO_SAVE]]", "").trim();
     } else {
       hideSaveActions();
     }
+
   } catch (err) {
     console.error("Chat failed", err);
     placeholder.querySelector(".ami-text").textContent =
@@ -301,5 +304,71 @@ function updateAgentUI(agent) {
 }
 
 
+async function loadReflections() {
+  const container = document.getElementById("reflections-list");
+  container.innerHTML = "<p class='muted'>Loading reflections…</p>";
+
+  try {
+    const res = await fetch(
+      "/api/intelligence/ami/reports?type=weekly_reflection"
+    );
+    const data = await res.json();
+
+    const reports = data.reports || [];
+    container.innerHTML = "";
+
+    if (reports.length === 0) {
+      container.innerHTML =
+        "<p class='muted'>No reflections yet.</p>";
+      return;
+    }
+
+    reports.forEach(r => {
+      const div = document.createElement("div");
+      div.className = "reflection-item";
+
+      div.innerHTML = `
+        <div class="reflection-meta">
+          Weekly reflection · Generated ${new Date(r.created_at).toLocaleString()}
+        </div>
+        <div class="reflection-content">
+          ${escapeHtml(r.content)}
+        </div>
+      `;
+
+      container.appendChild(div);
+    });
+  } catch (err) {
+    console.error("Failed to load reflections", err);
+    container.innerHTML =
+      "<p class='muted'>Failed to load reflections.</p>";
+  }
+}
+
+
+async function generateWeeklyReflection() {
+  try {
+    await fetch(
+      "/api/intelligence/ami/weekly_reflection",
+      { method: "POST" }
+    );
+
+    // Reload reflections after generation
+    loadReflections();
+  } catch (err) {
+    console.error("Failed to generate reflection", err);
+    alert("Failed to generate reflection.");
+  }
+}
+
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+
 loadActiveAgent();
 loadTimeline();
+loadReflections();
