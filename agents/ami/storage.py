@@ -157,3 +157,46 @@ def set_meta_value(key, value):
     )
     conn.commit()
     conn.close()
+
+
+def get_meta_value(key):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM meta WHERE key = ?", (key,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def get_observations_updated_since(ts: str):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    if ts:
+        cur.execute("""
+            SELECT id, uuid, date, domain, text, updated_at, deleted
+            FROM observations
+            WHERE updated_at > ?
+        """, (ts,))
+    else:
+        cur.execute("""
+            SELECT id, uuid, date, domain, text, updated_at, deleted
+            FROM observations
+        """)
+
+    rows = cur.fetchall()
+    conn.close()
+
+    return [
+        {
+            "id": r[0],
+            "uuid": r[1],
+            "date": r[2],
+            "domain": r[3],
+            "text": r[4],
+            "updated_at": r[5],
+            "deleted": r[6],
+        }
+        for r in rows
+    ]
+

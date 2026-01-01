@@ -45,6 +45,8 @@ from agents.ami.storage import (
     get_recent_observations,
     get_all_observations,
     set_meta_value,
+    get_meta_value,
+    get_observations_updated_since
 )
 
 from agents.workbench.storage import (
@@ -185,7 +187,7 @@ def call_llm(system_prompt, developer_prompt, context, user_message):
         config={
             "temperature": 0.2,
             "top_p": 0.9,
-            "max_output_tokens": 600,
+            "max_output_tokens": 2000,
         },
     )
 
@@ -225,7 +227,8 @@ def sync_google():
     cfg = SYNC_CONFIG[ACTIVE_AGENT]
 
     if ACTIVE_AGENT == "ami":
-        rows = get_all_observations()
+        last_sync = get_meta_value("last_sync_at")
+        rows = get_observations_updated_since(last_sync)
     else:
         rows = get_all_notes()
 
@@ -271,13 +274,20 @@ def generate_ami_weekly_reflection():
             "message": "No observations recorded in the past 7 days."
         })
 
-    report = generate_report(
-        agent_name="ami",
-        report_type="weekly_reflection",
-        entries=entries,
-        policy=AmiIntelligencePolicy,
-        llm_call_fn=call_llm,  # reuse your existing LLM wrapper
-    )
+    MAX_ATTEMPTS = 3
+
+    for attempt in range(MAX_ATTEMPTS):
+        report = generate_report(
+            agent_name="ami",
+            report_type="weekly_reflection",
+            entries=entries,
+            policy=AmiIntelligencePolicy,
+            llm_call_fn=call_llm,  # reuse your existing LLM wrapper
+        )
+        if is_complete_reflection(report):
+            break
+    else:
+        raise RuntimeError("Failed to generate complete reflection")
 
     return jsonify({
         "status": "ok",
@@ -318,6 +328,29 @@ def get_ami_observations_last_7_days():
 
     return recent
 
+
+
+def is_complete_reflection(text: str) -> bool:
+    required_sections = [
+        "## Summary",
+        "## Themes",
+        "## Moments"
+    ]
+
+    # Must contain all sections
+    for section in required_sections:
+        if section not in text:
+            return False
+
+    # Must be long enough to be meaningful
+    if len(text.strip()) < 400:
+        return False
+
+    # Must not end mid-sentence
+    if not text.strip().endswith((".", "。", "!", "?")):
+        return False
+
+    return True
 
 
 
