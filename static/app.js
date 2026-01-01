@@ -314,8 +314,24 @@ async function loadReflections() {
     );
     const data = await res.json();
 
-    const reports = data.reports || [];
     container.innerHTML = "";
+
+    // Case 1: Backend explicitly says no data
+    if (data.status === "no_data") {
+      container.innerHTML =
+        "<p class='muted'>No reflections yet.</p>";
+      return;
+    }
+
+    // Case 2: Backend error
+    if (data.status === "error") {
+      container.innerHTML =
+        `<p class='muted'>${escapeHtml(data.message || "Failed to load reflections.")}</p>`;
+      return;
+    }
+
+    // Normal case
+    const reports = data.reports || [];
 
     if (reports.length === 0) {
       container.innerHTML =
@@ -327,23 +343,29 @@ async function loadReflections() {
       const div = document.createElement("div");
       div.className = "reflection-item";
 
+      const date = r.created_at
+        ? new Date(r.created_at).toLocaleString()
+        : "Unknown time";
+
       div.innerHTML = `
         <div class="reflection-meta">
-          Weekly reflection · Generated ${new Date(r.created_at).toLocaleString()}
+          Weekly reflection · Generated ${date}
         </div>
         <div class="reflection-content">
-          ${escapeHtml(r.content)}
+          ${escapeHtml(r.content || "")}
         </div>
       `;
 
       container.appendChild(div);
     });
+
   } catch (err) {
     console.error("Failed to load reflections", err);
     container.innerHTML =
       "<p class='muted'>Failed to load reflections.</p>";
   }
 }
+
 
 
 async function generateWeeklyReflection() {

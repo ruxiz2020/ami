@@ -7,7 +7,7 @@ from google import genai
 from datetime import datetime
 from datetime import timedelta
 
-from intelligence.engine import generate_report
+from intelligence.engine import (generate_report_content, persist_report)
 from intelligence.storage import get_reports
 from agents.ami.intelligence_policy import AmiIntelligencePolicy
 
@@ -187,7 +187,7 @@ def call_llm(system_prompt, developer_prompt, context, user_message):
         config={
             "temperature": 0.2,
             "top_p": 0.9,
-            "max_output_tokens": 2000,
+            "max_output_tokens": 1200,
         },
     )
 
@@ -274,25 +274,40 @@ def generate_ami_weekly_reflection():
             "message": "No observations recorded in the past 7 days."
         })
 
-    MAX_ATTEMPTS = 3
-
-    for attempt in range(MAX_ATTEMPTS):
-        report = generate_report(
+    try:
+        content = generate_report_content(
             agent_name="ami",
             report_type="weekly_reflection",
             entries=entries,
             policy=AmiIntelligencePolicy,
-            llm_call_fn=call_llm,  # reuse your existing LLM wrapper
+            llm_call_fn=call_llm,
         )
-        if is_complete_reflection(report):
-            break
-    else:
-        raise RuntimeError("Failed to generate complete reflection")
+    except Exception as e:
+        logger.exception("Failed to generate reflection")
+        return jsonify({
+            "status": "error",
+            "message": "Failed to generate reflection"
+        }), 500
+
+    # Minimal sanity check only
+    if not content:
+        return jsonify({
+            "status": "error",
+            "message": "No reflection content generated."
+        }), 200
+
+    report = persist_report(
+        agent_name="ami",
+        report_type="weekly_reflection",
+        content=content,
+    )
 
     return jsonify({
         "status": "ok",
         "report": report,
     })
+
+
 
 
 @app.route("/api/intelligence/ami/reports", methods=["GET"])
@@ -330,27 +345,7 @@ def get_ami_observations_last_7_days():
 
 
 
-def is_complete_reflection(text: str) -> bool:
-    required_sections = [
-        "## Summary",
-        "## Themes",
-        "## Moments"
-    ]
 
-    # Must contain all sections
-    for section in required_sections:
-        if section not in text:
-            return False
-
-    # Must be long enough to be meaningful
-    if len(text.strip()) < 400:
-        return False
-
-    # Must not end mid-sentence
-    if not text.strip().endswith((".", "。", "!", "?")):
-        return False
-
-    return True
 
 
 

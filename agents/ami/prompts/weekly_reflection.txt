@@ -5,33 +5,33 @@ These are the observations recorded by the parent:
 {entries}
 
 IMPORTANT RULES:
+- Write the reflection in the SAME LANGUAGE as the observations.
+- Do not translate unless the observations themselves mix languages.
 - Do not introduce new information.
 - Do not speculate beyond what is recorded.
 - Do not give advice or instructions.
 - Do not compare to norms.
 - Use cautious, descriptive language.
-- All insights must be grounded in the observations above.
 
-You MUST write a complete reflection with the following sections.
+OUTPUT REQUIREMENTS:
+- The reflection must be concise.
+- Total length should be approximately 150–250 words.
+- Use short paragraphs (2–4 sentences each).
+
+You MUST include all sections below.
 
 ## Summary
-Write a short paragraph summarizing what the parent recorded this week.
-This summary must describe the kinds of moments observed, not just the count.
+In 2–3 sentences, summarize what kinds of moments the parent recorded this week.
+Do not mention counts alone; describe the nature of the moments.
 
 ## Themes Noticed
-Identify 1–3 themes that appear across multiple observations.
-For each theme:
-- Explain what connects the observations.
-- Use phrases like “you noted”, “you observed”, or “it appears from the records”.
+List 1–2 themes.
+For each theme, write 1–2 sentences explaining what connects the observations.
+Phrase themes as things the parent noticed.
 
 ## Moments That Stood Out
-Select 1–2 specific moments from the observations and briefly describe why they feel notable.
-You must paraphrase concrete details from the observations in this section.
+Briefly describe 1 specific moment from the observations that feels notable.
+Paraphrase concrete details from the entry.
 
-IMPORTANT:
-- You must finish all sections fully.
-- Do not stop mid-sentence.
-- The response is invalid if any section is incomplete.
-
-The reflection must be at least 3 paragraphs long.
-Do not stop early.
+Do not add any extra sections.
+Do not stop mid-sentence.
