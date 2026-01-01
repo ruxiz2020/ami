@@ -47,11 +47,24 @@
     <!-- Timeline -->
     <aside class="timeline">
       <h3>Timeline</h3>
+      <!-- Sync controls -->
+      <div class="sync-bar">
+        <button id="sync-btn" onclick="syncNow()">Sync now</button>
+        <span id="sync-status" class="sync-status">
+          Not synced yet
+        </span>
+      </div>
+
       <div id="timeline"></div>
     </aside>
+
   </main>
 </div>
 
+<script>
+  // Google Sheets spreadsheet ID (shared sync target)
+  window.SYNC_SPREADSHEET_ID = "1me9XfhpnwMVE_8slPgADtsVKtP9xK-cfoZmdy0qmAUA";
+</script>
 <script src="/static/app.js"></script>
 </body>
 </html>

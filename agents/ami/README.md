@@ -33,4 +33,11 @@ SELECT * FROM observations;
 
 ```
 
+### sync to gsheet
+```bash
+ curl -X POST http://127.0.0.1:5000/api/sync/google \
+  -H "Content-Type: application/json" \
+  -d '{"spreadsheet_id": "1me9XfhpnwMVE_8slPgADtsVKtP9xK-cfoZmdy0qmAUA"}'
+```
+
 

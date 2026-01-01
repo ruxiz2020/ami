@@ -4,6 +4,7 @@ import logging
 import os
 from pathlib import Path
 from google import genai
+from datetime import datetime
 
 from agents.ami.prompts.prompt_loader import (
     load_system_prompt,
@@ -12,10 +13,11 @@ from agents.ami.prompts.prompt_loader import (
 
 from agents.ami.storage import (
     init_db,
-    update_observation,
     add_observation,
+    update_observation,
     get_recent_observations,
-    get_all_observations
+    get_all_observations,
+    set_meta_value,
 )
 
 from agents.ami.sync.sync_service import sync_observations_to_sheets
@@ -70,6 +72,19 @@ def add_observation_route():
     add_observation(text)
     return jsonify({"status": "saved"})
 
+
+@app.route("/api/observations/<int:obs_id>", methods=["PUT"])
+def update_observation_route(obs_id):
+    payload = request.json or {}
+    new_text = payload.get("text", "").strip()
+
+    if not new_text:
+        return jsonify({"error": "Empty text"}), 400
+
+    update_observation(obs_id, new_text)
+    return jsonify({"status": "updated"})
+
+
 # -------------------------------------------------
 # Ami LLM Logic
 # -------------------------------------------------
@@ -117,9 +132,6 @@ def call_ami_llm(system_prompt, developer_prompt, context, user_message):
             "Nothing is lost — we can try again later."
         )
 
-# -------------------------------------------------
-# Chat endpoint
-# -------------------------------------------------
 
 @app.route("/api/chat", methods=["POST"])
 def ami_chat():
@@ -139,32 +151,24 @@ def ami_chat():
     return jsonify({"reply": reply})
 
 
-
-@app.route("/api/observations/<int:obs_id>", methods=["PUT"])
-def update_observation_route(obs_id):
-    payload = request.json or {}
-    new_text = payload.get("text", "").strip()
-
-    if not new_text:
-        return jsonify({"error": "Empty text"}), 400
-
-    update_observation(obs_id, new_text)
-    return jsonify({"status": "updated"})
-
-
+# -------------------------------------------------
+# Sync
+# -------------------------------------------------
 
 @app.route("/api/sync/google", methods=["POST"])
 def sync_google_sheets():
     payload = request.json or {}
+    logger.info(f"SYNC PAYLOAD: {payload}")
     sheet_id = payload.get("spreadsheet_id")
 
     if not sheet_id:
         return jsonify({"error": "Missing spreadsheet_id"}), 400
 
     result = sync_observations_to_sheets(sheet_id)
+
+    set_meta_value("last_sync_at", datetime.utcnow().isoformat())
+
     return jsonify(result)
-
-
 
 
 # -------------------------------------------------

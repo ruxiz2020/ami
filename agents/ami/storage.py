@@ -146,3 +146,14 @@ def update_observation(obs_id, new_text):
 
     conn.commit()
     conn.close()
+
+
+def set_meta_value(key, value):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+        (key, value)
+    )
+    conn.commit()
+    conn.close()

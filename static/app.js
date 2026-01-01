@@ -1,8 +1,16 @@
-// --------------------------------------------------
+// ==================================================
+// State
+// ==================================================
+
+let pendingObservation = null;
+
+// ==================================================
 // Timeline
-// --------------------------------------------------
+// ==================================================
 
 async function loadTimeline() {
+  hideSaveActions();
+
   try {
     const res = await fetch("/api/observations");
     const data = await res.json();
@@ -19,21 +27,21 @@ async function loadTimeline() {
         <div class="timeline-date">${item.date}</div>
         <div class="timeline-domain">${item.domain}</div>
         <div class="timeline-text">${item.text}</div>
-        <button class="edit-btn" onclick="startEdit(${item.id})">✏️ Edit</button>
+        <button class="edit-btn">✏️ Edit</button>
       `;
 
-          timeline.appendChild(div);
+      div.querySelector(".edit-btn").onclick = () => startEdit(item.id);
+
+      timeline.appendChild(div);
     });
-
-
   } catch (err) {
     console.error("Failed to load timeline", err);
   }
 }
 
-// --------------------------------------------------
+// ==================================================
 // Chat
-// --------------------------------------------------
+// ==================================================
 
 function appendUserMessage(text) {
   const chatLog = document.getElementById("chat-log");
@@ -50,90 +58,6 @@ function appendUserMessage(text) {
 
   chatLog.scrollTop = chatLog.scrollHeight;
 }
-
-
-async function sendMessage() {
-  const input = document.getElementById("chat-text");
-  const text = input.value.trim();
-  if (!text) return;
-
-  // 1️⃣ Show user message in chat
-  appendUserMessage(text);
-
-  // 2️⃣ Prepare for potential save
-  pendingObservation = text;
-
-  // 3️⃣ Clear input
-  input.value = "";
-
-  // 4️⃣ Show Ami placeholder
-  const placeholder = appendAmiMessage("…", true);
-
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text })
-    });
-
-    const data = await res.json();
-    const reply = data.reply || "";
-
-    placeholder.querySelector(".ami-text").textContent = reply;
-
-    // 5️⃣ Detect save request
-    if (reply.toLowerCase().includes("save this observation")) {
-      showSaveActions();
-    }
-
-  } catch (err) {
-    console.error("Chat failed", err);
-    placeholder.querySelector(".ami-text").textContent =
-      "I’m having trouble responding right now. We can try again later.";
-  }
-}
-
-
-
-function showSaveActions() {
-  const actions = document.getElementById("save-actions");
-  if (actions) actions.style.display = "flex";
-}
-
-function hideSaveActions() {
-  const actions = document.getElementById("save-actions");
-  if (actions) actions.style.display = "none";
-}
-
-async function confirmSave() {
-  if (!pendingObservation) return;
-
-  try {
-    await fetch("/api/observations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: pendingObservation })
-    });
-
-    appendAmiMessage("I’ve saved this.");
-    pendingObservation = null;
-    hideSaveActions();
-    loadTimeline();
-
-  } catch (err) {
-    console.error("Save failed", err);
-    appendAmiMessage("I couldn’t save that just now. We can try again later.");
-  }
-}
-
-function dismissSave() {
-  pendingObservation = null;
-  hideSaveActions();
-}
-
-
-
-
 
 function appendAmiMessage(text, isPlaceholder = false) {
   const chatLog = document.getElementById("chat-log");
@@ -160,69 +84,118 @@ function appendAmiMessage(text, isPlaceholder = false) {
   return div;
 }
 
-// --------------------------------------------------
-// Explicit save (used only when Ami asks)
-// --------------------------------------------------
-
-async function saveObservation(text) {
+async function sendMessage() {
+  const input = document.getElementById("chat-text");
+  const text = input.value.trim();
   if (!text) return;
+
+  appendUserMessage(text);
+  pendingObservation = text;
+  input.value = "";
+
+  const placeholder = appendAmiMessage("…", true);
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text })
+    });
+
+    const data = await res.json();
+    const reply = data.reply || "";
+
+    placeholder.querySelector(".ami-text").textContent = reply;
+
+    if (reply.toLowerCase().includes("save this observation")) {
+      showSaveActions();
+    } else {
+      hideSaveActions();
+    }
+  } catch (err) {
+    console.error("Chat failed", err);
+    placeholder.querySelector(".ami-text").textContent =
+      "I’m having trouble responding right now. We can try again later.";
+  }
+}
+
+// ==================================================
+// Save controls
+// ==================================================
+
+function showSaveActions() {
+  const actions = document.getElementById("save-actions");
+  if (actions) actions.style.display = "flex";
+}
+
+function hideSaveActions() {
+  const actions = document.getElementById("save-actions");
+  if (actions) actions.style.display = "none";
+}
+
+async function confirmSave() {
+  if (!pendingObservation) return;
 
   try {
     await fetch("/api/observations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ text: pendingObservation })
     });
 
     appendAmiMessage("I’ve saved this.");
+    pendingObservation = null;
+    hideSaveActions();
     loadTimeline();
-
   } catch (err) {
     console.error("Save failed", err);
     appendAmiMessage("I couldn’t save that just now. We can try again later.");
   }
 }
 
-// --------------------------------------------------
-// Init
-// --------------------------------------------------
-
-loadTimeline();
-
-
-async function confirmSave() {
-  if (!pendingObservation) return;
-
-  await fetch("/api/observations", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: pendingObservation })
-  });
-
-  appendAmiMessage("I’ve saved this.");
+function dismissSave() {
   pendingObservation = null;
-  loadTimeline();
+  hideSaveActions();
 }
+
+// ==================================================
+// Timeline inline editing
+// ==================================================
 
 function startEdit(id) {
   const item = document.querySelector(`.timeline-item[data-id="${id}"]`);
   const textDiv = item.querySelector(".timeline-text");
   const originalText = textDiv.textContent;
 
-  textDiv.innerHTML = `
-    <textarea class="edit-textarea">${originalText}</textarea>
-    <div class="edit-actions">
-      <button onclick="saveEdit(${id})">Save changes</button>
-      <button class="secondary" onclick="cancelEdit(${id}, \`${originalText}\`)">Cancel</button>
-    </div>
-  `;
+  textDiv.innerHTML = "";
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "edit-textarea";
+  textarea.value = originalText;
+
+  const actions = document.createElement("div");
+  actions.className = "edit-actions";
+
+  const saveBtn = document.createElement("button");
+  saveBtn.textContent = "Save changes";
+  saveBtn.onclick = () => saveEdit(id);
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "secondary";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.onclick = () => cancelEdit(id, originalText);
+
+  actions.appendChild(saveBtn);
+  actions.appendChild(cancelBtn);
+
+  textDiv.appendChild(textarea);
+  textDiv.appendChild(actions);
 }
 
 async function saveEdit(id) {
   const item = document.querySelector(`.timeline-item[data-id="${id}"]`);
   const textarea = item.querySelector(".edit-textarea");
   const newText = textarea.value.trim();
-
   if (!newText) return;
 
   await fetch(`/api/observations/${id}`, {
@@ -239,3 +212,45 @@ function cancelEdit(id, originalText) {
   item.querySelector(".timeline-text").textContent = originalText;
 }
 
+// ==================================================
+// Sync
+// ==================================================
+
+async function syncNow() {
+  const btn = document.getElementById("sync-btn");
+  const status = document.getElementById("sync-status");
+
+  btn.disabled = true;
+  status.textContent = "Syncing…";
+
+  try {
+    const res = await fetch("/api/sync/google", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        spreadsheet_id: window.SYNC_SPREADSHEET_ID
+      })
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      const now = new Date().toLocaleTimeString();
+      status.textContent =
+        `Last synced at ${now} (${data.inserted} new, ${data.updated} updated)`;
+    } else {
+      status.textContent = "Sync failed";
+    }
+  } catch (err) {
+    console.error(err);
+    status.textContent = "Sync failed";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ==================================================
+// Init
+// ==================================================
+
+loadTimeline();

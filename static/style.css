@@ -252,3 +252,31 @@ main {
   background: #e0e0e0;
   color: #333;
 }
+
+
+.sync-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+#sync-btn {
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: none;
+  background: #a3c4bc;
+  color: white;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+#sync-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sync-status {
+  font-size: 0.8em;
+  color: #666;
+}
