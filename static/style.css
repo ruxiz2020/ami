@@ -280,3 +280,16 @@ main {
   font-size: 0.8em;
   color: #666;
 }
+
+
+.header-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#agent-selector {
+  font-size: 0.9em;
+  padding: 4px 6px;
+  border-radius: 6px;
+}

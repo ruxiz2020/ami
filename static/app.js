@@ -4,6 +4,19 @@
 
 let pendingObservation = null;
 
+
+const AGENT_UI = {
+  ami: {
+    title: "Ami",
+    subtitle: "A gentle place to notice today",
+  },
+  workbench: {
+    title: "Workbench",
+    subtitle: "A calm place to capture what you’re learning",
+  },
+};
+
+
 // ==================================================
 // Timeline
 // ==================================================
@@ -247,8 +260,46 @@ async function syncNow() {
   }
 }
 
+
 // ==================================================
 // Init
 // ==================================================
 
+
+async function loadActiveAgent() {
+  const res = await fetch("/api/agent");
+  const data = await res.json();
+  const agent = data.agent;
+
+  document.getElementById("agent-selector").value = agent;
+  updateAgentUI(agent);
+}
+
+
+async function switchAgent(agent) {
+  await fetch("/api/agent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agent }),
+  });
+
+  updateAgentUI(agent);
+
+  // Clear UI state
+  document.getElementById("chat-log").innerHTML = "";
+  hideSaveActions();
+  pendingObservation = null;
+
+  loadTimeline();
+}
+
+
+function updateAgentUI(agent) {
+  const cfg = AGENT_UI[agent];
+  document.getElementById("agent-title").textContent = cfg.title;
+  document.getElementById("agent-subtitle").textContent = cfg.subtitle;
+}
+
+
+loadActiveAgent();
 loadTimeline();

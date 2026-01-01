@@ -10,8 +10,19 @@
 
 <div class="container">
   <header>
-    <h1>Ami</h1>
-    <p class="subtitle">A gentle place to notice today</p>
+    <div class="header-row">
+      <h1 id="agent-title">Ami</h1>
+
+        <select id="agent-selector" onchange="switchAgent(this.value)">
+          <option value="ami">Ami</option>
+          <option value="workbench">Workbench</option>
+        </select>
+    </div>
+
+    <p id="agent-subtitle" class="subtitle">
+      A gentle place to notice today
+    </p>
+
   </header>
 
   <main>
