@@ -337,6 +337,7 @@ async function switchAgent(agent) {
   pendingObservation = null;
   hideSaveActions();
 
+  clearDailySummary();
   loadTimeline();
   loadReflections();
 }
@@ -488,6 +489,15 @@ function normalizeEntry(raw) {
     domain: raw.domain ?? raw.agent ?? raw.topic ?? "",
   };
 }
+
+
+function clearDailySummary() {
+  const box = document.getElementById("daily-events");
+  if (box) {
+    box.innerHTML = "<p class='muted'>Loading…</p>";
+  }
+}
+
 
 
 loadActiveAgent();

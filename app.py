@@ -5,29 +5,23 @@ import os
 from pathlib import Path
 from google import genai
 from datetime import datetime, timedelta
-import uuid
 
-from intelligence.engine import (generate_report_content, persist_report)
-from intelligence.storage import get_reports
+from intelligence.engine import generate_report_content, persist_report
+from intelligence.storage import get_reports, init_db as init_intelligence_db
+
 from agents.ami.intelligence_policy import AmiIntelligencePolicy
 from agents.workbench.intelligence_policy import WorkbenchIntelligencePolicy
 
 from agents.common.storage import init_db as init_entries_db
 
-
 # -------------------------------------------------
 # Agent selection
 # -------------------------------------------------
 
-ACTIVE_AGENT = "ami"        # default UI-selected agent
+ACTIVE_AGENT = "ami"
 DEFAULT_AGENT = "ami"
 
 def get_agent():
-    """
-    CHANGED:
-    Prefer agent from request (frontend getAgentPayload),
-    fallback to ACTIVE_AGENT for backward compatibility.
-    """
     data = request.get_json(silent=True) or {}
     return (
         data.get("agent")
@@ -50,33 +44,62 @@ from agents.workbench.prompts.prompt_loader import (
     load_developer_prompt as load_workbench_developer,
 )
 
-from intelligence.storage import init_db as init_intelligence_db
-
 # -------------------------------------------------
-# Storage
+# Storage wrappers (legacy names preserved)
 # -------------------------------------------------
 
 from agents.ami.storage import (
-    init_db as init_ami_db,
     add_observation,
     update_observation,
     get_recent_observations,
     get_all_observations,
-    set_meta_value,
+    get_observations_updated_since,
     get_meta_value,
-    get_observations_updated_since
+    set_meta_value,
 )
 
 from agents.workbench.storage import (
-    init_db as init_workbench_db,
     add_note,
     update_note,
     get_all_notes,
-    get_workbench_notes_last_7_days
+    get_workbench_notes_last_7_days,
 )
 
 # -------------------------------------------------
-# Sync
+# Agent registry (SINGLE SOURCE OF TRUTH)
+# -------------------------------------------------
+
+AGENTS = {
+    "ami": {
+        "system_prompt": load_ami_system,
+        "developer_prompt": load_ami_developer,
+        "add_entry": add_observation,
+        "update_entry": update_observation,
+        "get_entries": get_all_observations,
+        "get_recent_entries": get_recent_observations,
+        "get_entries_last_7_days": lambda: get_ami_observations_last_7_days(),
+        "reflection_policy": AmiIntelligencePolicy,
+        "sync_rows": lambda: get_observations_updated_since(
+            get_meta_value("ami_last_sync_at")
+        ),
+        "set_last_sync": lambda ts: set_meta_value("ami_last_sync_at", ts),
+    },
+    "workbench": {
+        "system_prompt": load_workbench_system,
+        "developer_prompt": load_workbench_developer,
+        "add_entry": add_note,
+        "update_entry": update_note,
+        "get_entries": get_all_notes,
+        "get_recent_entries": lambda limit=5: get_all_notes()[:limit],
+        "get_entries_last_7_days": get_workbench_notes_last_7_days,
+        "reflection_policy": WorkbenchIntelligencePolicy,
+        "sync_rows": get_all_notes,
+        "set_last_sync": lambda ts: None,
+    },
+}
+
+# -------------------------------------------------
+# Sync config
 # -------------------------------------------------
 
 from sync.sync_service import sync_rows_to_sheets
@@ -89,7 +112,7 @@ SYNC_CONFIG = {
     "workbench": {
         "spreadsheet_id": "1eDUVvr3yuQPQ-d11VaAvqS_UIl5Hca0O0uc9K7c2DZo",
         "sheet_tab": "workbench_notes",
-    }
+    },
 }
 
 # -------------------------------------------------
@@ -97,7 +120,6 @@ SYNC_CONFIG = {
 # -------------------------------------------------
 
 load_dotenv()
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -111,11 +133,8 @@ app = Flask(
     static_folder=str(ROOT_DIR / "static"),
 )
 
-# Initialize DBs (unchanged)
-init_ami_db()
-init_workbench_db()
-init_intelligence_db()
 init_entries_db()
+init_intelligence_db()
 
 # -------------------------------------------------
 # Routes
@@ -128,137 +147,108 @@ def index():
 
 @app.route("/api/observations", methods=["GET"])
 def get_entries():
-    agent = get_agent()   # ✅ use request agent, not global
-    logger.info("GET /api/observations agent=%s", agent)
+    agent = get_agent()
+    cfg = AGENTS.get(agent)
+    if not cfg:
+        return jsonify({"error": "Unknown agent"}), 400
 
-    if agent == "ami":
-        return jsonify(get_all_observations())
-    else:
-        return jsonify(get_all_notes())
-
+    return jsonify(cfg["get_entries"]())
 
 
 @app.route("/api/observations", methods=["POST"])
 def add_entry():
-    payload = request.json or {}
     agent = get_agent()
-    text = payload.get("text", "").strip()
+    cfg = AGENTS.get(agent)
+    if not cfg:
+        return jsonify({"error": "Unknown agent"}), 400
 
+    text = (request.json or {}).get("text", "").strip()
     if not text:
         return jsonify({"error": "Empty entry"}), 400
 
-    if agent == "ami":
-        add_observation(text)
-    else:
-        add_note(text)
-
+    cfg["add_entry"](text)
     return jsonify({"status": "saved"})
 
 
 @app.route("/api/observations/<int:entry_id>", methods=["PUT"])
 def update_entry(entry_id):
-    payload = request.json or {}
     agent = get_agent()
-    new_text = payload.get("text", "").strip()
+    cfg = AGENTS.get(agent)
+    if not cfg:
+        return jsonify({"error": "Unknown agent"}), 400
 
-    if not new_text:
+    text = (request.json or {}).get("text", "").strip()
+    if not text:
         return jsonify({"error": "Empty text"}), 400
 
-    if agent == "ami":
-        update_observation(entry_id, new_text)
-    else:
-        update_note(entry_id, new_text)
-
+    cfg["update_entry"](entry_id, text)
     return jsonify({"status": "updated"})
 
 # -------------------------------------------------
-# LLM Logic (agent-aware)
+# Chat
 # -------------------------------------------------
 
 def build_context(agent):
-    """
-    CHANGED:
-    Make context builder agent-explicit.
-    """
-    if agent == "ami":
-        rows = get_recent_observations(limit=5)
-        prefix = "Recent observations (from the parent):"
-    else:
-        rows = get_all_notes()[:5]
-        prefix = "Recent work notes:"
-
+    cfg = AGENTS[agent]
+    rows = cfg["get_recent_entries"](limit=5)
     if not rows:
         return ""
 
+    prefix = "Recent entries:"
     lines = [f"- {r['text']}" for r in rows]
     return prefix + "\n" + "\n".join(lines)
 
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    """
-    CHANGED:
-    - Agent resolved from payload
-    - AUTO_SAVED now actually persists
-    """
-    payload = request.json or {}
     agent = get_agent()
-    user_message = payload.get("message", "").strip()
+    cfg = AGENTS.get(agent)
+    if not cfg:
+        return jsonify({"reply": ""})
 
+    user_message = (request.json or {}).get("message", "").strip()
     if not user_message:
         return jsonify({"reply": ""})
 
-    if agent == "ami":
-        system_prompt = load_ami_system()
-        developer_prompt = load_ami_developer()
-    else:
-        system_prompt = load_workbench_system()
-        developer_prompt = load_workbench_developer()
-
     reply = call_llm(
-        system_prompt=system_prompt,
-        developer_prompt=developer_prompt,
+        system_prompt=cfg["system_prompt"](),
+        developer_prompt=cfg["developer_prompt"](),
         context=build_context(agent),
         user_message=user_message,
     )
 
-    # NEW: AUTO-SAVE CONTRACT
     if "[[AUTO_SAVED]]" in reply:
-        if agent == "ami":
-            add_observation(user_message)
-        else:
-            add_note(user_message)
+        cfg["add_entry"](user_message)
 
     return jsonify({"reply": reply})
 
 # -------------------------------------------------
-# Sync (agent-aware)
+# Sync
 # -------------------------------------------------
 
 @app.route("/api/sync/google", methods=["POST"])
 def sync_google():
-    """
-    CHANGED:
-    Use resolved agent, not global ACTIVE_AGENT.
-    """
     agent = get_agent()
-    cfg = SYNC_CONFIG[agent]
+    cfg = AGENTS.get(agent)
+    sync_cfg = SYNC_CONFIG.get(agent)
 
-    if agent == "ami":
-        last_sync = get_meta_value("last_sync_at")
-        rows = get_observations_updated_since(last_sync)
-    else:
-        rows = get_all_notes()
+    if not cfg or not sync_cfg:
+        return jsonify({"error": "Sync not supported"}), 400
+
+    rows = cfg["sync_rows"]()
 
     result = sync_rows_to_sheets(
-        spreadsheet_id=cfg["spreadsheet_id"],
-        sheet_tab=cfg["sheet_tab"],
+        spreadsheet_id=sync_cfg["spreadsheet_id"],
+        sheet_tab=sync_cfg["sheet_tab"],
         rows=rows,
     )
 
-    set_meta_value("last_sync_at", datetime.utcnow().isoformat())
+    cfg["set_last_sync"](datetime.utcnow().isoformat())
     return jsonify(result)
 
+# -------------------------------------------------
+# Agent selector
+# -------------------------------------------------
 
 @app.route("/api/agent", methods=["GET"])
 def get_active_agent():
@@ -268,31 +258,24 @@ def get_active_agent():
 @app.route("/api/agent", methods=["POST"])
 def set_active_agent():
     global ACTIVE_AGENT
-    payload = request.json or {}
-    agent = payload.get("agent")
-
-    if agent not in ("ami", "workbench"):
+    agent = (request.json or {}).get("agent")
+    if agent not in AGENTS:
         return jsonify({"error": "Invalid agent"}), 400
 
     ACTIVE_AGENT = agent
-    return jsonify({"status": "ok", "agent": ACTIVE_AGENT})
+    return jsonify({"status": "ok", "agent": agent})
 
 # -------------------------------------------------
-# Intelligence / Reflection (UNCHANGED)
+# Intelligence / Reflection
 # -------------------------------------------------
 
 @app.route("/api/intelligence/<agent>/weekly_reflection", methods=["POST"])
 def generate_weekly_reflection(agent):
-    if agent not in ("ami", "workbench"):
+    cfg = AGENTS.get(agent)
+    if not cfg:
         return jsonify({"error": "Unknown agent"}), 400
 
-    if agent == "ami":
-        entries = get_ami_observations_last_7_days()
-        policy = AmiIntelligencePolicy
-    else:
-        entries = get_workbench_notes_last_7_days()
-        policy = WorkbenchIntelligencePolicy
-
+    entries = cfg["get_entries_last_7_days"]()
     if not entries:
         return jsonify({
             "status": "no_data",
@@ -303,7 +286,7 @@ def generate_weekly_reflection(agent):
         agent_name=agent,
         report_type="weekly_reflection",
         entries=entries,
-        policy=policy,
+        policy=cfg["reflection_policy"],
         llm_call_fn=call_llm,
     )
 
@@ -313,32 +296,29 @@ def generate_weekly_reflection(agent):
         content=content,
     )
 
-    return jsonify({
-        "status": "ok",
-        "report": report,
-    })
+    return jsonify({"status": "ok", "report": report})
 
 
 @app.route("/api/intelligence/<agent>/reports", methods=["GET"])
 def get_agent_reports(agent):
-    if agent not in ("ami", "workbench"):
+    if agent not in AGENTS:
         return jsonify({"error": "Unknown agent"}), 400
 
     report_type = request.args.get("type")
     reports = get_reports(agent=agent, report_type=report_type)
+    return jsonify({"status": "ok", "reports": reports})
 
-    return jsonify({
-        "status": "ok",
-        "reports": reports
-    })
-
+# -------------------------------------------------
+# Helpers
+# -------------------------------------------------
 
 def get_ami_observations_last_7_days():
     cutoff = datetime.utcnow() - timedelta(days=7)
     cutoff_date = cutoff.strftime("%Y-%m-%d")
-
-    observations = get_all_observations()
-    return [o for o in observations if o["date"] >= cutoff_date]
+    return [
+        o for o in get_all_observations()
+        if o.get("date", "").startswith(cutoff_date)
+    ]
 
 
 def call_llm(system_prompt, developer_prompt, context, user_message):
@@ -351,11 +331,10 @@ def call_llm(system_prompt, developer_prompt, context, user_message):
         prompt_parts.append("\nCONTEXT:\n" + context)
 
     prompt_parts.append("\nUSER MESSAGE:\n" + user_message)
-    full_prompt = "\n\n".join(prompt_parts)
 
     response = client.models.generate_content(
         model="models/gemini-2.5-flash",
-        contents=full_prompt,
+        contents="\n\n".join(prompt_parts),
         config={
             "temperature": 0.2,
             "top_p": 0.9,
@@ -364,7 +343,6 @@ def call_llm(system_prompt, developer_prompt, context, user_message):
     )
 
     return response.text.strip()
-
 
 # -------------------------------------------------
 # Entry point
