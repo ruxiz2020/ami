@@ -10,6 +10,7 @@ from datetime import timedelta
 from intelligence.engine import (generate_report_content, persist_report)
 from intelligence.storage import get_reports
 from agents.ami.intelligence_policy import AmiIntelligencePolicy
+from agents.workbench.intelligence_policy import WorkbenchIntelligencePolicy
 
 # -------------------------------------------------
 # Agent selection (TEMPORARY hard-code)
@@ -54,6 +55,7 @@ from agents.workbench.storage import (
     add_note,
     update_note,
     get_all_notes,
+    get_workbench_notes_last_7_days
 )
 
 # -------------------------------------------------
@@ -261,43 +263,34 @@ def set_active_agent():
 
 
 
-@app.route("/api/intelligence/ami/weekly_reflection", methods=["POST"])
-def generate_ami_weekly_reflection():
-    if ACTIVE_AGENT != "ami":
-        return jsonify({"error": "Active agent is not Ami"}), 400
+@app.route("/api/intelligence/<agent>/weekly_reflection", methods=["POST"])
+def generate_weekly_reflection(agent):
+    if agent not in ("ami", "workbench"):
+        return jsonify({"error": "Unknown agent"}), 400
 
-    entries = get_ami_observations_last_7_days()
+    if agent == "ami":
+        entries = get_ami_observations_last_7_days()
+        policy = AmiIntelligencePolicy
+    else:
+        entries = get_workbench_notes_last_7_days()
+        policy = WorkbenchIntelligencePolicy
 
     if not entries:
         return jsonify({
             "status": "no_data",
-            "message": "No observations recorded in the past 7 days."
+            "message": "No entries recorded in the past 7 days."
         })
 
-    try:
-        content = generate_report_content(
-            agent_name="ami",
-            report_type="weekly_reflection",
-            entries=entries,
-            policy=AmiIntelligencePolicy,
-            llm_call_fn=call_llm,
-        )
-    except Exception as e:
-        logger.exception("Failed to generate reflection")
-        return jsonify({
-            "status": "error",
-            "message": "Failed to generate reflection"
-        }), 500
-
-    # Minimal sanity check only
-    if not content:
-        return jsonify({
-            "status": "error",
-            "message": "No reflection content generated."
-        }), 200
+    content = generate_report_content(
+        agent_name=agent,
+        report_type="weekly_reflection",
+        entries=entries,
+        policy=policy,
+        llm_call_fn=call_llm,
+    )
 
     report = persist_report(
-        agent_name="ami",
+        agent_name=agent,
         report_type="weekly_reflection",
         content=content,
     )
@@ -310,15 +303,16 @@ def generate_ami_weekly_reflection():
 
 
 
-@app.route("/api/intelligence/ami/reports", methods=["GET"])
-def get_ami_reports():
-    if ACTIVE_AGENT != "ami":
-        return jsonify({"error": "Active agent is not Ami"}), 400
+
+@app.route("/api/intelligence/<agent>/reports", methods=["GET"])
+def get_agent_reports(agent):
+    if agent not in ("ami", "workbench"):
+        return jsonify({"error": "Unknown agent"}), 400
 
     report_type = request.args.get("type")  # optional, e.g. weekly_reflection
 
     reports = get_reports(
-        agent="ami",
+        agent=agent,
         report_type=report_type
     )
 

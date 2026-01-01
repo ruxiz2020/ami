@@ -31,7 +31,9 @@ async function loadTimeline() {
     const timeline = document.getElementById("timeline");
     timeline.innerHTML = "";
 
-    data.forEach(item => {
+    const latest = data.slice(0, 5);
+
+    latest.forEach(item => {
       const div = document.createElement("div");
       div.className = "timeline-item";
       div.dataset.id = item.id;
@@ -44,9 +46,9 @@ async function loadTimeline() {
       `;
 
       div.querySelector(".edit-btn").onclick = () => startEdit(item.id);
-
       timeline.appendChild(div);
     });
+
   } catch (err) {
     console.error("Failed to load timeline", err);
   }
@@ -309,9 +311,11 @@ async function loadReflections() {
   container.innerHTML = "<p class='muted'>Loading reflections…</p>";
 
   try {
+    const agent = getActiveAgent();
     const res = await fetch(
-      "/api/intelligence/ami/reports?type=weekly_reflection"
+      `/api/intelligence/${agent}/reports?type=weekly_reflection`
     );
+
     const data = await res.json();
 
     container.innerHTML = "";
@@ -339,7 +343,9 @@ async function loadReflections() {
       return;
     }
 
-    reports.forEach(r => {
+    const latest = reports.slice(0, 5);
+
+    latest.forEach(r => {
       const div = document.createElement("div");
       div.className = "reflection-item";
 
@@ -370,9 +376,10 @@ async function loadReflections() {
 
 async function generateWeeklyReflection() {
   try {
+    const agent = getActiveAgent();
     await fetch(
-      "/api/intelligence/ami/weekly_reflection",
-      { method: "POST" }
+        `/api/intelligence/${agent}/weekly_reflection`,
+        { method: "POST" }
     );
 
     // Reload reflections after generation
@@ -388,6 +395,11 @@ function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
+}
+
+
+function getActiveAgent() {
+  return document.getElementById("agent-selector").value;
 }
 
 

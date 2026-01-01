@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "data" / "workbench.db"
@@ -85,6 +85,66 @@ def get_all_notes():
             "uuid": r[1],
             "topic": r[2],
             "text": r[3],          # NOTE: reuse "text" key for UI compatibility
+            "updated_at": r[4],
+        }
+        for r in rows
+    ]
+
+
+def get_notes_last_n_days(days=7):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+    cur.execute("""
+        SELECT id, uuid, topic, content, updated_at
+        FROM notes
+        WHERE deleted = 0 AND updated_at >= ?
+        ORDER BY updated_at DESC
+    """, (cutoff,))
+
+    rows = cur.fetchall()
+    conn.close()
+
+    return [
+        {
+            "id": r[0],
+            "uuid": r[1],
+            "topic": r[2],
+            "text": r[3],
+            "updated_at": r[4],
+        }
+        for r in rows
+    ]
+
+
+from datetime import datetime, timedelta
+
+
+def get_workbench_notes_last_7_days():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
+
+    cur.execute("""
+        SELECT id, uuid, topic, content, updated_at
+        FROM notes
+        WHERE deleted = 0
+          AND updated_at >= ?
+        ORDER BY updated_at DESC
+    """, (cutoff,))
+
+    rows = cur.fetchall()
+    conn.close()
+
+    return [
+        {
+            "id": r[0],
+            "uuid": r[1],
+            "topic": r[2],
+            "text": r[3],          # normalized key for intelligence + UI
             "updated_at": r[4],
         }
         for r in rows
