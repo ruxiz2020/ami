@@ -1,0 +1,15 @@
+You are generating a weekly reflection based on the following observations.
+
+These are the observations recorded by the parent:
+
+{entries}
+
+Write a reflection with the following sections:
+
+1. Summary of what was recorded this week
+2. Themes the parent seemed to notice
+3. Moments that stood out
+
+Do not give advice.
+Do not compare to norms.
+Use tentative language.

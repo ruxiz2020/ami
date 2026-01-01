@@ -5,13 +5,18 @@ import os
 from pathlib import Path
 from google import genai
 from datetime import datetime
+from datetime import timedelta
+
+from intelligence.engine import generate_report
+from intelligence.storage import get_reports
+from agents.ami.intelligence_policy import AmiIntelligencePolicy
 
 # -------------------------------------------------
 # Agent selection (TEMPORARY hard-code)
 # -------------------------------------------------
 
-# ACTIVE_AGENT = "ami"        # change to "workbench" to test
-ACTIVE_AGENT = "workbench"
+ACTIVE_AGENT = "ami"        # change to "workbench" to test
+# ACTIVE_AGENT = "workbench"
 
 # -------------------------------------------------
 # Prompts
@@ -26,6 +31,8 @@ from agents.workbench.prompts.prompt_loader import (
     load_system_prompt as load_workbench_system,
     load_developer_prompt as load_workbench_developer,
 )
+
+from intelligence.storage import init_db as init_intelligence_db
 
 # -------------------------------------------------
 # Storage
@@ -86,9 +93,12 @@ app = Flask(
     static_folder=str(ROOT_DIR / "static"),
 )
 
+
 # Initialize both DBs (safe & idempotent)
 init_ami_db()
 init_workbench_db()
+
+init_intelligence_db()
 
 # -------------------------------------------------
 # Routes
@@ -247,6 +257,66 @@ def set_active_agent():
     return jsonify({"status": "ok", "agent": ACTIVE_AGENT})
 
 
+
+@app.route("/api/intelligence/ami/weekly_reflection", methods=["POST"])
+def generate_ami_weekly_reflection():
+    if ACTIVE_AGENT != "ami":
+        return jsonify({"error": "Active agent is not Ami"}), 400
+
+    entries = get_ami_observations_last_7_days()
+
+    if not entries:
+        return jsonify({
+            "status": "no_data",
+            "message": "No observations recorded in the past 7 days."
+        })
+
+    report = generate_report(
+        agent_name="ami",
+        report_type="weekly_reflection",
+        entries=entries,
+        policy=AmiIntelligencePolicy,
+        llm_call_fn=call_llm,  # reuse your existing LLM wrapper
+    )
+
+    return jsonify({
+        "status": "ok",
+        "report": report,
+    })
+
+
+@app.route("/api/intelligence/ami/reports", methods=["GET"])
+def get_ami_reports():
+    if ACTIVE_AGENT != "ami":
+        return jsonify({"error": "Active agent is not Ami"}), 400
+
+    report_type = request.args.get("type")  # optional, e.g. weekly_reflection
+
+    reports = get_reports(
+        agent="ami",
+        report_type=report_type
+    )
+
+    return jsonify({
+        "status": "ok",
+        "reports": reports
+    })
+
+
+
+def get_ami_observations_last_7_days():
+    cutoff = datetime.utcnow() - timedelta(days=7)
+    cutoff_date = cutoff.strftime("%Y-%m-%d")
+
+    # get_all_observations already returns newest first
+    observations = get_all_observations()
+
+    recent = [
+        o for o in observations
+        if o["date"] >= cutoff_date
+    ]
+
+    return recent
 
 
 
