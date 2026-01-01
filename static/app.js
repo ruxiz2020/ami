@@ -1,4 +1,17 @@
 // ==================================================
+// Save Protocol Tokens
+// ==================================================
+
+const ASK_TO_SAVE = "[[ASK_TO_SAVE]]";
+const AUTO_SAVED = "[[AUTO_SAVED]]";
+
+function stripToken(text, token) {
+  return text.replace(token, "").trim();
+}
+
+
+
+// ==================================================
 // State
 // ==================================================
 
@@ -25,8 +38,12 @@ async function loadTimeline() {
   hideSaveActions();
 
   try {
-    const res = await fetch("/api/observations");
-    const data = await res.json();
+    const agent = getActiveAgent();
+    const res = await fetch(`/api/observations?agent=${encodeURIComponent(agent)}`);
+    const rawData = await res.json();
+    const data = (rawData || []).map(normalizeEntry);
+
+    loadDailySummary(data);
 
     const timeline = document.getElementById("timeline");
     timeline.innerHTML = "";
@@ -40,8 +57,8 @@ async function loadTimeline() {
 
       div.innerHTML = `
         <div class="timeline-date">${item.date}</div>
-        <div class="timeline-domain">${item.domain}</div>
-        <div class="timeline-text">${item.text}</div>
+        <div class="timeline-domain">${item.domain || agent}</div>
+        <div class="timeline-text">${escapeHtml(item.text)}</div>
         <button class="edit-btn">✏️ Edit</button>
       `;
 
@@ -53,6 +70,7 @@ async function loadTimeline() {
     console.error("Failed to load timeline", err);
   }
 }
+
 
 // ==================================================
 // Chat
@@ -105,8 +123,10 @@ async function sendMessage() {
   if (!text) return;
 
   appendUserMessage(text);
-  pendingObservation = text;
   input.value = "";
+
+  // Optimistically assume no pending save unless agent asks
+  pendingObservation = null;
 
   const placeholder = appendAmiMessage("…", true);
 
@@ -114,21 +134,36 @@ async function sendMessage() {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text })
+      body: JSON.stringify(
+        getAgentPayload({ message: text })
+      ),
     });
 
     const data = await res.json();
-    const reply = data.reply || "";
+    let reply = data.reply || "";
 
-    placeholder.querySelector(".ami-text").textContent = reply;
-
-    if (reply.includes("[[ASK_TO_SAVE]]")) {
+    // === ASK TO SAVE (manual confirmation) ===
+    if (reply.includes(ASK_TO_SAVE)) {
+      pendingObservation = text;
       showSaveActions();
-      placeholder.querySelector(".ami-text").textContent =
-        reply.replace("[[ASK_TO_SAVE]]", "").trim();
-    } else {
+      reply = stripToken(reply, ASK_TO_SAVE);
+    }
+
+    // === AUTO SAVED (backend already saved) ===
+    else if (reply.includes(AUTO_SAVED)) {
+      pendingObservation = null;
+      hideSaveActions();
+      reply = stripToken(reply, AUTO_SAVED);
+      loadTimeline();
+    }
+
+    // === NO SAVE ===
+    else {
+      pendingObservation = null;
       hideSaveActions();
     }
+
+    placeholder.querySelector(".ami-text").textContent = reply;
 
   } catch (err) {
     console.error("Chat failed", err);
@@ -136,6 +171,7 @@ async function sendMessage() {
       "I’m having trouble responding right now. We can try again later.";
   }
 }
+
 
 // ==================================================
 // Save controls
@@ -158,18 +194,22 @@ async function confirmSave() {
     await fetch("/api/observations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: pendingObservation })
+      body: JSON.stringify(
+        getAgentPayload({ text: pendingObservation })
+      ),
     });
 
-    appendAmiMessage("I’ve saved this.");
+    appendAmiMessage("Noted.");
     pendingObservation = null;
     hideSaveActions();
     loadTimeline();
+
   } catch (err) {
     console.error("Save failed", err);
-    appendAmiMessage("I couldn’t save that just now. We can try again later.");
+    appendAmiMessage("I couldn’t save that just now.");
   }
 }
+
 
 function dismissSave() {
   pendingObservation = null;
@@ -219,11 +259,14 @@ async function saveEdit(id) {
   await fetch(`/api/observations/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: newText })
+    body: JSON.stringify(
+      getAgentPayload({ text: newText })
+    ),
   });
 
   loadTimeline();
 }
+
 
 function cancelEdit(id, originalText) {
   const item = document.querySelector(`.timeline-item[data-id="${id}"]`);
@@ -290,13 +333,14 @@ async function switchAgent(agent) {
 
   updateAgentUI(agent);
 
-  // Clear UI state
   document.getElementById("chat-log").innerHTML = "";
-  hideSaveActions();
   pendingObservation = null;
+  hideSaveActions();
 
   loadTimeline();
+  loadReflections();
 }
+
 
 
 function updateAgentUI(agent) {
@@ -358,7 +402,7 @@ async function loadReflections() {
           Weekly reflection · Generated ${date}
         </div>
         <div class="reflection-content">
-          ${escapeHtml(r.content || "")}
+          ${marked.parse(r.content || "")}
         </div>
       `;
 
@@ -400,6 +444,49 @@ function escapeHtml(text) {
 
 function getActiveAgent() {
   return document.getElementById("agent-selector").value;
+}
+
+/**
+ * Build a request payload that always includes the active agent.
+ * Use this for ALL API calls that are agent-specific.
+ */
+function getAgentPayload(extra = {}) {
+  return {
+    agent: getActiveAgent(),
+    ...extra,
+  };
+}
+
+
+function loadDailySummary(entries) {
+  const box = document.getElementById("daily-events");
+  if (!box) return;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const todays = entries.filter(e => e.date.startsWith(today));
+
+  if (todays.length === 0) {
+    box.innerHTML = "<p class='muted'>No entries today.</p>";
+    return;
+  }
+
+  box.innerHTML = "";
+  todays.forEach(e => {
+    const div = document.createElement("div");
+    div.className = "event";
+    div.textContent = "• " + e.text;
+    box.appendChild(div);
+  });
+}
+
+
+function normalizeEntry(raw) {
+  return {
+    id: raw.id ?? raw.uuid,
+    text: raw.text ?? raw.content ?? "",
+    date: raw.date ?? raw.created_at ?? raw.updated_at ?? "",
+    domain: raw.domain ?? raw.agent ?? raw.topic ?? "",
+  };
 }
 
 

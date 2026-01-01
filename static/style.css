@@ -365,3 +365,38 @@ main {
   flex-direction: column;
   gap: 32px; /* space BETWEEN Timeline and Reflections */
 }
+
+
+.reflection-content h2 {
+  margin-top: 0.8em;
+  font-size: 1.05em;
+}
+
+.reflection-content ul {
+  padding-left: 1.2em;
+  margin: 0.5em 0;
+}
+
+.reflection-content li {
+  margin-bottom: 0.3em;
+}
+
+
+
+.daily-summary {
+  margin-top: 16px;
+  padding: 12px;
+  background: #f7f8f7;
+  border-radius: 8px;
+  font-size: 0.9em;
+}
+
+.daily-summary h3 {
+  margin-top: 0;
+  font-size: 0.95em;
+}
+
+.daily-events .event {
+  margin-bottom: 6px;
+}
+

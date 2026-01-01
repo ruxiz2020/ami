@@ -4,20 +4,37 @@ import logging
 import os
 from pathlib import Path
 from google import genai
-from datetime import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta
+import uuid
 
 from intelligence.engine import (generate_report_content, persist_report)
 from intelligence.storage import get_reports
 from agents.ami.intelligence_policy import AmiIntelligencePolicy
 from agents.workbench.intelligence_policy import WorkbenchIntelligencePolicy
 
+from agents.common.storage import init_db as init_entries_db
+
+
 # -------------------------------------------------
-# Agent selection (TEMPORARY hard-code)
+# Agent selection
 # -------------------------------------------------
 
-ACTIVE_AGENT = "ami"        # change to "workbench" to test
-# ACTIVE_AGENT = "workbench"
+ACTIVE_AGENT = "ami"        # default UI-selected agent
+DEFAULT_AGENT = "ami"
+
+def get_agent():
+    """
+    CHANGED:
+    Prefer agent from request (frontend getAgentPayload),
+    fallback to ACTIVE_AGENT for backward compatibility.
+    """
+    data = request.get_json(silent=True) or {}
+    return (
+        data.get("agent")
+        or request.args.get("agent")
+        or ACTIVE_AGENT
+        or DEFAULT_AGENT
+    )
 
 # -------------------------------------------------
 # Prompts
@@ -70,7 +87,7 @@ SYNC_CONFIG = {
         "sheet_tab": "observations",
     },
     "workbench": {
-        "spreadsheet_id": "1me9XfhpnwMVE_8slPgADtsVKtP9xK-cfoZmdy0qmAUA",
+        "spreadsheet_id": "1eDUVvr3yuQPQ-d11VaAvqS_UIl5Hca0O0uc9K7c2DZo",
         "sheet_tab": "workbench_notes",
     }
 }
@@ -84,9 +101,6 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-if not os.getenv("GEMINI_API_KEY"):
-    logger.warning("GEMINI_API_KEY is not set. Gemini calls will fail.")
-
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -97,12 +111,11 @@ app = Flask(
     static_folder=str(ROOT_DIR / "static"),
 )
 
-
-# Initialize both DBs (safe & idempotent)
+# Initialize DBs (unchanged)
 init_ami_db()
 init_workbench_db()
-
 init_intelligence_db()
+init_entries_db()
 
 # -------------------------------------------------
 # Routes
@@ -115,21 +128,26 @@ def index():
 
 @app.route("/api/observations", methods=["GET"])
 def get_entries():
-    if ACTIVE_AGENT == "ami":
+    agent = get_agent()   # ✅ use request agent, not global
+    logger.info("GET /api/observations agent=%s", agent)
+
+    if agent == "ami":
         return jsonify(get_all_observations())
     else:
         return jsonify(get_all_notes())
 
 
+
 @app.route("/api/observations", methods=["POST"])
 def add_entry():
     payload = request.json or {}
+    agent = get_agent()
     text = payload.get("text", "").strip()
 
     if not text:
         return jsonify({"error": "Empty entry"}), 400
 
-    if ACTIVE_AGENT == "ami":
+    if agent == "ami":
         add_observation(text)
     else:
         add_note(text)
@@ -140,12 +158,13 @@ def add_entry():
 @app.route("/api/observations/<int:entry_id>", methods=["PUT"])
 def update_entry(entry_id):
     payload = request.json or {}
+    agent = get_agent()
     new_text = payload.get("text", "").strip()
 
     if not new_text:
         return jsonify({"error": "Empty text"}), 400
 
-    if ACTIVE_AGENT == "ami":
+    if agent == "ami":
         update_observation(entry_id, new_text)
     else:
         update_note(entry_id, new_text)
@@ -156,8 +175,12 @@ def update_entry(entry_id):
 # LLM Logic (agent-aware)
 # -------------------------------------------------
 
-def build_context():
-    if ACTIVE_AGENT == "ami":
+def build_context(agent):
+    """
+    CHANGED:
+    Make context builder agent-explicit.
+    """
+    if agent == "ami":
         rows = get_recent_observations(limit=5)
         prefix = "Recent observations (from the parent):"
     else:
@@ -171,40 +194,21 @@ def build_context():
     return prefix + "\n" + "\n".join(lines)
 
 
-def call_llm(system_prompt, developer_prompt, context, user_message):
-    prompt_parts = [
-        "SYSTEM ROLE:\n" + system_prompt,
-        "\nDEVELOPER RULES:\n" + developer_prompt,
-    ]
-
-    if context:
-        prompt_parts.append("\nCONTEXT:\n" + context)
-
-    prompt_parts.append("\nUSER MESSAGE:\n" + user_message)
-    full_prompt = "\n\n".join(prompt_parts)
-
-    response = client.models.generate_content(
-        model="models/gemini-2.5-flash",
-        contents=full_prompt,
-        config={
-            "temperature": 0.2,
-            "top_p": 0.9,
-            "max_output_tokens": 1200,
-        },
-    )
-
-    return response.text.strip()
-
-
 @app.route("/api/chat", methods=["POST"])
 def chat():
+    """
+    CHANGED:
+    - Agent resolved from payload
+    - AUTO_SAVED now actually persists
+    """
     payload = request.json or {}
+    agent = get_agent()
     user_message = payload.get("message", "").strip()
 
     if not user_message:
         return jsonify({"reply": ""})
 
-    if ACTIVE_AGENT == "ami":
+    if agent == "ami":
         system_prompt = load_ami_system()
         developer_prompt = load_ami_developer()
     else:
@@ -214,9 +218,16 @@ def chat():
     reply = call_llm(
         system_prompt=system_prompt,
         developer_prompt=developer_prompt,
-        context=build_context(),
+        context=build_context(agent),
         user_message=user_message,
     )
+
+    # NEW: AUTO-SAVE CONTRACT
+    if "[[AUTO_SAVED]]" in reply:
+        if agent == "ami":
+            add_observation(user_message)
+        else:
+            add_note(user_message)
 
     return jsonify({"reply": reply})
 
@@ -226,9 +237,14 @@ def chat():
 
 @app.route("/api/sync/google", methods=["POST"])
 def sync_google():
-    cfg = SYNC_CONFIG[ACTIVE_AGENT]
+    """
+    CHANGED:
+    Use resolved agent, not global ACTIVE_AGENT.
+    """
+    agent = get_agent()
+    cfg = SYNC_CONFIG[agent]
 
-    if ACTIVE_AGENT == "ami":
+    if agent == "ami":
         last_sync = get_meta_value("last_sync_at")
         rows = get_observations_updated_since(last_sync)
     else:
@@ -261,7 +277,9 @@ def set_active_agent():
     ACTIVE_AGENT = agent
     return jsonify({"status": "ok", "agent": ACTIVE_AGENT})
 
-
+# -------------------------------------------------
+# Intelligence / Reflection (UNCHANGED)
+# -------------------------------------------------
 
 @app.route("/api/intelligence/<agent>/weekly_reflection", methods=["POST"])
 def generate_weekly_reflection(agent):
@@ -301,20 +319,13 @@ def generate_weekly_reflection(agent):
     })
 
 
-
-
-
 @app.route("/api/intelligence/<agent>/reports", methods=["GET"])
 def get_agent_reports(agent):
     if agent not in ("ami", "workbench"):
         return jsonify({"error": "Unknown agent"}), 400
 
-    report_type = request.args.get("type")  # optional, e.g. weekly_reflection
-
-    reports = get_reports(
-        agent=agent,
-        report_type=report_type
-    )
+    report_type = request.args.get("type")
+    reports = get_reports(agent=agent, report_type=report_type)
 
     return jsonify({
         "status": "ok",
@@ -322,25 +333,37 @@ def get_agent_reports(agent):
     })
 
 
-
 def get_ami_observations_last_7_days():
     cutoff = datetime.utcnow() - timedelta(days=7)
     cutoff_date = cutoff.strftime("%Y-%m-%d")
 
-    # get_all_observations already returns newest first
     observations = get_all_observations()
+    return [o for o in observations if o["date"] >= cutoff_date]
 
-    recent = [
-        o for o in observations
-        if o["date"] >= cutoff_date
+
+def call_llm(system_prompt, developer_prompt, context, user_message):
+    prompt_parts = [
+        "SYSTEM ROLE:\n" + system_prompt,
+        "\nDEVELOPER RULES:\n" + developer_prompt,
     ]
 
-    return recent
+    if context:
+        prompt_parts.append("\nCONTEXT:\n" + context)
 
+    prompt_parts.append("\nUSER MESSAGE:\n" + user_message)
+    full_prompt = "\n\n".join(prompt_parts)
 
+    response = client.models.generate_content(
+        model="models/gemini-2.5-flash",
+        contents=full_prompt,
+        config={
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "max_output_tokens": 1500,
+        },
+    )
 
-
-
+    return response.text.strip()
 
 
 # -------------------------------------------------
