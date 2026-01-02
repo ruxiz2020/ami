@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from intelligence.engine import generate_report_content, persist_report
 from intelligence.storage import get_reports, init_db as init_intelligence_db
 
+from agents.steward.storage import init_db as init_steward_db
+
 from agents.ami.intelligence_policy import AmiIntelligencePolicy
 from agents.workbench.intelligence_policy import WorkbenchIntelligencePolicy
 from agents.caretaker.intelligence_policy import CaretakerIntelligencePolicy
@@ -236,6 +238,9 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret")
 init_entries_db()
 init_intelligence_db()
 
+init_steward_db()
+
+
 SESSION_CONTEXTS = {}
 
 
@@ -279,7 +284,7 @@ def add_entry():
 
 
 @app.route("/api/observations", methods=["GET"])
-def get_entries():
+def get_observations():
     agent = get_agent()
     cfg = AGENTS.get(agent)
     if not cfg:
@@ -516,6 +521,35 @@ def get_agent_reports(agent):
     report_type = request.args.get("type")
     reports = get_reports(agent=agent, report_type=report_type)
     return jsonify({"status": "ok", "reports": reports})
+
+
+
+@app.route("/api/intelligence/<agent>/category_summary", methods=["POST"])
+def generate_category_summary_report(agent):
+    cfg = AGENTS.get(agent)
+    if not cfg:
+        return jsonify({"error": "Unknown agent"}), 400
+
+    entries = cfg["get_entries"]()
+    if not entries:
+        return jsonify({"status": "no_data"})
+
+    content = generate_report_content(
+        agent_name=agent,
+        report_type="category_summary",
+        entries=entries,
+        policy=None,
+        llm_call_fn=None,
+    )
+
+    report = persist_report(
+        agent_name=agent,
+        report_type="category_summary",
+        content=content,
+    )
+
+    return jsonify({"status": "ok", "report": report})
+
 
 # -------------------------------------------------
 # Helpers

@@ -54,3 +54,8 @@ def resolve_subjects_if_any(agent_name: str, text: str, ctx):
     # Intentionally empty.
     # You may plug in LLM-based inference later.
     return
+
+
+class SimpleProject:
+    def __init__(self, descriptors: str):
+        self.descriptors = descriptors

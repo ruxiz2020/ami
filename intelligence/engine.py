@@ -3,6 +3,7 @@
 from datetime import datetime
 from intelligence.storage import save_report
 from intelligence.templates import load_prompt_template
+from intelligence.category_summary import generate_category_summary
 
 
 def generate_report(
@@ -62,9 +63,23 @@ def generate_report_content(
     policy,
     llm_call_fn,
 ):
+    if report_type == "category_summary":
+        return generate_category_summary(agent_name, entries)
+
     template = load_prompt_template(agent_name, report_type)
+    def _entry_to_text(e: dict) -> str:
+        if "text" in e and e["text"]:
+            return e["text"]
+        if "content" in e and isinstance(e["content"], str):
+            return e["content"]
+        return ""
+
     user_content = template.format(
-        entries="\n".join(f"- {e['text']}" for e in entries)
+        entries="\n".join(
+            f"- {_entry_to_text(e)}"
+            for e in entries
+            if _entry_to_text(e)
+        )
     )
 
     return llm_call_fn(

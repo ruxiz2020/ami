@@ -353,6 +353,7 @@ async function switchAgent(agent) {
   clearDailySummary();
   loadTimeline();
   loadReflections();
+  loadCategorySummary();
 }
 
 
@@ -513,6 +514,72 @@ function clearDailySummary() {
 
 
 
-loadActiveAgent();
-loadTimeline();
-loadReflections();
+async function loadCategorySummary() {
+  const agent = getActiveAgent();
+  const panel = document.getElementById("category-summary");
+  const list = document.getElementById("summary-list");
+
+  panel.classList.add("hidden");
+  list.innerHTML = "";
+
+  try {
+    // ---------------------------------------------
+    // STEP 1: Ensure summary exists (generate/update)
+    // ---------------------------------------------
+    await fetch(
+        `/api/intelligence/${agent}/category_summary`,
+        { method: "POST" }
+    );
+
+    // ---------------------------------------------
+    // STEP 2: Load summary report
+    // ---------------------------------------------
+    const res = await fetch(
+        `/api/intelligence/${agent}/reports?type=category_summary`
+    );
+    const data = await res.json();
+
+    const reports = data.reports || [];
+    if (reports.length === 0) {
+      panel.classList.add("hidden");
+      return;
+    }
+
+    const summary = reports[0].content;
+    if (!summary || !summary.items || summary.items.length === 0) {
+      panel.classList.add("hidden");
+      return;
+    }
+
+    // ---------------------------------------------
+    // STEP 3: Render
+    // ---------------------------------------------
+    panel.classList.remove("hidden");
+
+    summary.items.forEach(item => {
+      const div = document.createElement("div");
+      div.innerHTML = `
+        <strong>${escapeHtml(item.category)}</strong>
+        <div class="muted">
+          ${item.count} entries ·
+          Last updated ${new Date(item.last_updated).toLocaleDateString()}
+        </div>
+      `;
+      list.appendChild(div);
+    });
+
+  } catch (err) {
+    console.error("Failed to load category summary", err);
+    panel.classList.add("hidden");
+  }
+}
+
+
+
+
+loadActiveAgent().then(() => {
+  loadTimeline();
+  loadReflections();
+  loadCategorySummary();
+});
+

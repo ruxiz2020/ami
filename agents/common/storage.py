@@ -10,12 +10,14 @@ DB_PATH.parent.mkdir(exist_ok=True)
 
 
 def get_conn():
+    print(">>> init_db using DB_PATH =", DB_PATH.resolve())
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db():
+    print(">>> init_db using DB_PATH =", DB_PATH.resolve())
     conn = get_conn()
     cur = conn.cursor()
 
@@ -25,6 +27,8 @@ def init_db():
             uuid TEXT,
             agent TEXT,
             type TEXT,
+            subject TEXT,
+            tags TEXT,
             topic TEXT,
             content TEXT,
             created_at TEXT,
