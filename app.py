@@ -1,7 +1,9 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session
 from dotenv import load_dotenv
 import logging
 import os
+import uuid
+import json
 from pathlib import Path
 from google import genai
 from datetime import datetime, timedelta
@@ -15,6 +17,12 @@ from agents.caretaker.intelligence_policy import CaretakerIntelligencePolicy
 
 from agents.common.storage import init_db as init_entries_db
 from agents.common.storage import get_entries
+
+from session.context import SessionContext
+from agents.common.subjects import resolve_subjects_if_any
+from agents.common.enforcement import enforce_subjects
+from agents.common.agent_policy import AgentSubjectPolicy
+
 
 # -------------------------------------------------
 # Agent selection
@@ -94,6 +102,11 @@ AGENTS = {
         "reflection_policy": AmiIntelligencePolicy,
         "sync_rows": lambda: get_entries(agent="ami"),
         "set_last_sync": lambda ts: set_meta_value("ami_last_sync_at", ts),
+        "subject_resolver": "ami",
+        "subject_policy": AgentSubjectPolicy(
+            require_domain=False,
+            require_person=False,
+        ),
     },
     "workbench": {
         "system_prompt": load_workbench_system,
@@ -106,6 +119,11 @@ AGENTS = {
         "reflection_policy": WorkbenchIntelligencePolicy,
         "sync_rows": lambda: get_entries(agent="workbench"),
         "set_last_sync": lambda ts: None,
+        "subject_resolver": "workbench",
+        "subject_policy": AgentSubjectPolicy(
+            require_domain=False,
+            require_person=False,
+        ),
     },
     "caretaker": {
         "system_prompt": load_caretaker_system,
@@ -116,8 +134,13 @@ AGENTS = {
         "get_recent_entries": get_recent_medical_entries,
         "get_entries_last_7_days": lambda: get_recent_medical_entries(limit=50),
         "reflection_policy": CaretakerIntelligencePolicy,
-        "sync_rows": lambda: get_entries(agent="caretaker"),
+        "sync_rows": get_all_medical_entries,
         "set_last_sync": lambda ts: None,
+        "subject_resolver": "caretaker",
+        "subject_policy": AgentSubjectPolicy(
+            require_domain=True,
+            require_person=True,
+        ),
     },
 }
 
@@ -159,9 +182,14 @@ app = Flask(
     template_folder=str(ROOT_DIR / "templates"),
     static_folder=str(ROOT_DIR / "static"),
 )
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret")
+
 
 init_entries_db()
 init_intelligence_db()
+
+SESSION_CONTEXTS = {}
+
 
 # -------------------------------------------------
 # Routes
@@ -170,16 +198,6 @@ init_intelligence_db()
 @app.route("/")
 def index():
     return render_template("index.html")
-
-
-@app.route("/api/observations", methods=["GET"])
-def api_get_entries():
-    agent = get_agent()
-    cfg = AGENTS.get(agent)
-    if not cfg:
-        return jsonify({"error": "Unknown agent"}), 400
-
-    return jsonify(cfg["get_entries"]())
 
 
 @app.route("/api/observations", methods=["POST"])
@@ -193,8 +211,34 @@ def add_entry():
     if not text:
         return jsonify({"error": "Empty entry"}), 400
 
+    ctx = get_session_context()
+
+    resolve_subjects_if_any(agent, text, ctx)
+
+    policy = cfg.get("subject_policy")
+    if policy:
+        ok, msg = enforce_subjects(policy, ctx)
+        if not ok:
+            return jsonify({
+                "status": "need_clarification",
+                "message": msg,
+            }), 400
+
     cfg["add_entry"](text)
+    clear_context_after_save(ctx)
+
     return jsonify({"status": "saved"})
+
+
+@app.route("/api/observations", methods=["GET"])
+def get_entries():
+    agent = get_agent()
+    cfg = AGENTS.get(agent)
+    if not cfg:
+        return jsonify({"error": "Unknown agent"}), 400
+
+    return jsonify(cfg["get_entries"]())
+
 
 
 @app.route("/api/observations/<int:entry_id>", methods=["PUT"])
@@ -237,6 +281,76 @@ def chat():
     if not user_message:
         return jsonify({"reply": ""})
 
+    # -------------------------------------------------
+    # Load persistent conversation context
+    # -------------------------------------------------
+    ctx = get_session_context()
+
+    # ---------------------------------------------
+    # Capture record content EARLY (once)
+    # ---------------------------------------------
+    if (
+        not ctx.collected_text
+        and not is_control_or_subject_answer(ctx, user_message)
+    ):
+        ctx.collected_text.append(user_message)
+
+
+    # -------------------------------------------------
+    # Step 1: Resolve subjects (may CONSUME an answer)
+    # -------------------------------------------------
+    previous_pending = ctx.pending_subject
+
+    resolve_subjects_if_any(
+        agent_name=agent,
+        text=user_message,
+        ctx=ctx,
+    )
+
+    policy = cfg.get("subject_policy")
+
+    # -------------------------------------------------
+    # Step 2: If we just consumed a clarification answer,
+    # immediately re-run policy and STOP
+    # -------------------------------------------------
+    if previous_pending is not None and ctx.pending_subject is None:
+        if policy:
+            ok, msg = enforce_subjects(policy, ctx)
+            if not ok:
+                return jsonify({"reply": msg})
+        # Even if policy passes, do NOT call LLM yet
+        return jsonify({"reply": "好的，已了解。请继续。"})
+
+    # -------------------------------------------------
+    # Step 3: Normal policy enforcement
+    # -------------------------------------------------
+    if policy:
+        ok, msg = enforce_subjects(policy, ctx)
+        if not ok:
+            return jsonify({"reply": msg})
+
+    # ---------------------------------------------
+    # Collect record content (only when appropriate)
+    # ---------------------------------------------
+    if (
+        ctx.pending_subject is None
+        and not user_wants_to_save(user_message)
+    ):
+        ctx.collected_text.append(user_message)
+
+
+    # ---------------------------------------------
+    # Explicit SAVE intent (system-controlled)
+    # ---------------------------------------------
+    if user_wants_to_save(user_message):
+        if not policy or enforce_subjects(policy, ctx)[0]:
+            cfg["add_entry"](build_final_entry(ctx))
+            clear_context_after_save(ctx)
+            return jsonify({"reply": "已保存该记录。"})
+
+    # -------------------------------------------------
+    # Step 4: NOW it is safe to call the LLM
+    # -------------------------------------------------
     reply = call_llm(
         system_prompt=cfg["system_prompt"](),
         developer_prompt=cfg["developer_prompt"](),
@@ -244,10 +358,17 @@ def chat():
         user_message=user_message,
     )
 
+    # -------------------------------------------------
+    # Step 5: AUTO_SAVED guarded by policy
+    # -------------------------------------------------
     if "[[AUTO_SAVED]]" in reply:
-        cfg["add_entry"](user_message)
+        if not policy or enforce_subjects(policy, ctx)[0]:
+            cfg["add_entry"](user_message)
+            clear_context_after_save(ctx)
 
     return jsonify({"reply": reply})
+
+
 
 # -------------------------------------------------
 # Sync
@@ -370,6 +491,70 @@ def call_llm(system_prompt, developer_prompt, context, user_message):
     )
 
     return response.text.strip()
+
+
+def get_session_context():
+    if "session_id" not in session:
+        session["session_id"] = str(uuid.uuid4())
+
+    sid = session["session_id"]
+
+    if sid not in SESSION_CONTEXTS:
+        SESSION_CONTEXTS[sid] = SessionContext()
+
+    return SESSION_CONTEXTS[sid]
+
+
+
+def clear_context_after_save(ctx):
+    ctx.active_domain = None
+    ctx.active_person = None
+    ctx.pending_subject = None
+    ctx.is_question_turn = False
+
+
+def user_wants_to_save(text: str) -> bool:
+    return text.strip().lower() in {
+        "save",
+        "confirm",
+        "yes",
+        "ok",
+        "record",
+    }
+
+
+
+
+def build_final_entry(ctx):
+    """
+    Build a JSON-serializable record for storage.
+    """
+
+    record = {
+        "person": ctx.active_person.descriptors if ctx.active_person else None,
+        "domain": {
+            "domain": ctx.active_domain.domain,
+            "subdomain": ctx.active_domain.subdomain,
+        } if ctx.active_domain else None,
+        "content": ctx.collected_text,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+
+    return json.dumps(record, ensure_ascii=False)
+
+
+def is_control_or_subject_answer(ctx, text: str) -> bool:
+    # Explicit save command
+    if user_wants_to_save(text):
+        return True
+
+    # Answering a clarification question
+    if ctx.pending_subject is not None:
+        return True
+
+    return False
+
+
 
 # -------------------------------------------------
 # Entry point
