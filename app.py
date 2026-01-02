@@ -11,8 +11,10 @@ from intelligence.storage import get_reports, init_db as init_intelligence_db
 
 from agents.ami.intelligence_policy import AmiIntelligencePolicy
 from agents.workbench.intelligence_policy import WorkbenchIntelligencePolicy
+from agents.caretaker.intelligence_policy import CaretakerIntelligencePolicy
 
 from agents.common.storage import init_db as init_entries_db
+from agents.common.storage import get_entries
 
 # -------------------------------------------------
 # Agent selection
@@ -44,6 +46,11 @@ from agents.workbench.prompts.prompt_loader import (
     load_developer_prompt as load_workbench_developer,
 )
 
+from agents.caretaker.prompts.prompt_loader import (
+    load_system_prompt as load_caretaker_system,
+    load_developer_prompt as load_caretaker_developer,
+)
+
 # -------------------------------------------------
 # Storage wrappers (legacy names preserved)
 # -------------------------------------------------
@@ -65,6 +72,12 @@ from agents.workbench.storage import (
     get_workbench_notes_last_7_days,
 )
 
+from agents.caretaker.storage import (
+    add_medical_entry,
+    get_all_medical_entries,
+    get_recent_medical_entries,
+)
+
 # -------------------------------------------------
 # Agent registry (SINGLE SOURCE OF TRUTH)
 # -------------------------------------------------
@@ -79,9 +92,7 @@ AGENTS = {
         "get_recent_entries": get_recent_observations,
         "get_entries_last_7_days": lambda: get_ami_observations_last_7_days(),
         "reflection_policy": AmiIntelligencePolicy,
-        "sync_rows": lambda: get_observations_updated_since(
-            get_meta_value("ami_last_sync_at")
-        ),
+        "sync_rows": lambda: get_entries(agent="ami"),
         "set_last_sync": lambda ts: set_meta_value("ami_last_sync_at", ts),
     },
     "workbench": {
@@ -93,7 +104,19 @@ AGENTS = {
         "get_recent_entries": lambda limit=5: get_all_notes()[:limit],
         "get_entries_last_7_days": get_workbench_notes_last_7_days,
         "reflection_policy": WorkbenchIntelligencePolicy,
-        "sync_rows": get_all_notes,
+        "sync_rows": lambda: get_entries(agent="workbench"),
+        "set_last_sync": lambda ts: None,
+    },
+    "caretaker": {
+        "system_prompt": load_caretaker_system,
+        "developer_prompt": load_caretaker_developer,
+        "add_entry": add_medical_entry,
+        "update_entry": lambda *_: None,  # optional for now
+        "get_entries": get_all_medical_entries,
+        "get_recent_entries": get_recent_medical_entries,
+        "get_entries_last_7_days": lambda: get_recent_medical_entries(limit=50),
+        "reflection_policy": CaretakerIntelligencePolicy,
+        "sync_rows": lambda: get_entries(agent="caretaker"),
         "set_last_sync": lambda ts: None,
     },
 }
@@ -112,6 +135,10 @@ SYNC_CONFIG = {
     "workbench": {
         "spreadsheet_id": "1eDUVvr3yuQPQ-d11VaAvqS_UIl5Hca0O0uc9K7c2DZo",
         "sheet_tab": "workbench_notes",
+    },
+    "caretaker": {
+        "spreadsheet_id": "1CZXkQsE_MmJvpWwTwPuY-bbbkg2WyJ2C55EZ3DkUpYk",
+        "sheet_tab": "caretaker_notes",
     },
 }
 
@@ -146,7 +173,7 @@ def index():
 
 
 @app.route("/api/observations", methods=["GET"])
-def get_entries():
+def api_get_entries():
     agent = get_agent()
     cfg = AGENTS.get(agent)
     if not cfg:

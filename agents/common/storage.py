@@ -1,4 +1,5 @@
 import sqlite3
+import json
 from pathlib import Path
 import uuid
 from datetime import datetime
@@ -40,21 +41,23 @@ def init_db():
 # Write
 # -------------------------------------------------
 
-def add_entry(agent, content, type="note", topic=None):
+def add_entry(agent, content, type="note", subject=None, tags=None):
     conn = get_conn()
     cur = conn.cursor()
 
     now = datetime.utcnow().isoformat()
+    tags_json = json.dumps(tags) if tags else None
 
     cur.execute("""
         INSERT INTO entries
-        (uuid, agent, type, topic, content, created_at, updated_at, deleted)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        (uuid, agent, type, subject, tags, content, created_at, updated_at, deleted)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
     """, (
         str(uuid.uuid4()),
         agent,
         type,
-        topic,
+        subject,
+        tags_json,
         content,
         now,
         now,
@@ -62,6 +65,7 @@ def add_entry(agent, content, type="note", topic=None):
 
     conn.commit()
     conn.close()
+
 
 
 def update_entry(entry_id, new_content):
@@ -113,8 +117,9 @@ def get_entries(agent=None, type=None, limit=None):
             "uuid": r["uuid"],
             "agent": r["agent"],
             "type": r["type"],
-            "topic": r["topic"],
-            "text": r["content"],              # UI-compatible
+            "subject": r["subject"],
+            "tags": json.loads(r["tags"]) if r["tags"] else [],
+            "text": r["content"],
             "created_at": r["created_at"],
             "updated_at": r["updated_at"],
         }

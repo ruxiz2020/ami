@@ -48,12 +48,12 @@ def init_db():
 
 from agents.common.storage import add_entry, get_entries
 
-def add_note(text, topic="General"):
+def add_note(text, tags=None):
     add_entry(
         agent="workbench",
         type="note",
+        tags=tags,        # 👈 knowledge domain(s)
         content=text,
-        topic=topic,
     )
 
 

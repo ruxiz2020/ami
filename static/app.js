@@ -21,13 +21,18 @@ let pendingObservation = null;
 const AGENT_UI = {
   ami: {
     title: "Ami",
-    subtitle: "A gentle place to notice today",
+    subtitle: "Notice and record everyday moments with your child",
   },
   workbench: {
     title: "Workbench",
-    subtitle: "A calm place to capture what you’re learning",
+    subtitle: "Capture work learnings, insights, and professional notes",
   },
+  caretaker: {
+    title: "Caretaker",
+    subtitle: "Keep a clear record of family medical history and health events",
+  }
 };
+
 
 
 // ==================================================

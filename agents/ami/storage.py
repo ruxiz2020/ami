@@ -62,12 +62,14 @@ def init_db():
 from agents.common.storage import add_entry, get_entries
 
 
-def add_observation(text):
+def add_observation(text, child_name=None):
     add_entry(
         agent="ami",
         type="observation",
+        subject=child_name,   # 👈 who this is about
         content=text,
     )
+
 
 
 def get_recent_observations(limit=5):

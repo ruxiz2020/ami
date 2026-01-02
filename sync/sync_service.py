@@ -20,6 +20,7 @@ def sync_rows_to_sheets(
     """
 
     adapter = GoogleSheetsAdapter(spreadsheet_id, sheet_tab)
+    adapter.ensure_header()
 
     existing = adapter.fetch_existing_rows()
     updated = 0
