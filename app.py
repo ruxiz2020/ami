@@ -14,6 +14,8 @@ from intelligence.storage import get_reports, init_db as init_intelligence_db
 from agents.ami.intelligence_policy import AmiIntelligencePolicy
 from agents.workbench.intelligence_policy import WorkbenchIntelligencePolicy
 from agents.caretaker.intelligence_policy import CaretakerIntelligencePolicy
+from agents.steward.intelligence_policy import StewardIntelligencePolicy
+
 
 from agents.common.storage import init_db as init_entries_db
 from agents.common.storage import get_entries
@@ -23,6 +25,7 @@ from agents.common.subjects import resolve_subjects_if_any
 from agents.common.enforcement import enforce_subjects
 from agents.common.agent_policy import AgentSubjectPolicy
 
+from sync.local_spreadsheet_service import sync_rows_to_csv
 
 # -------------------------------------------------
 # Agent selection
@@ -59,6 +62,12 @@ from agents.caretaker.prompts.prompt_loader import (
     load_developer_prompt as load_caretaker_developer,
 )
 
+from agents.steward.prompts.prompt_loader import (
+    load_system_prompt as load_steward_system,
+    load_developer_prompt as load_steward_developer,
+)
+
+
 # -------------------------------------------------
 # Storage wrappers (legacy names preserved)
 # -------------------------------------------------
@@ -85,6 +94,13 @@ from agents.caretaker.storage import (
     get_all_medical_entries,
     get_recent_medical_entries,
 )
+
+from agents.steward.storage import (
+    add_project_event,
+    get_all_project_events,
+    get_recent_project_events,
+)
+
 
 # -------------------------------------------------
 # Agent registry (SINGLE SOURCE OF TRUTH)
@@ -142,6 +158,35 @@ AGENTS = {
             require_person=True,
         ),
     },
+    "steward": {
+        "system_prompt": load_steward_system,
+        "developer_prompt": load_steward_developer,
+
+        # storage
+        "add_entry": add_project_event,
+        "update_entry": lambda *_: None,   # append-only
+        "get_entries": lambda: get_all_project_events(project_name=None),
+        "get_recent_entries": lambda limit=5: get_recent_project_events(
+            project_name=None,
+            limit=limit,
+        ),
+
+        # intelligence
+        "get_entries_last_7_days": lambda: get_entries(agent="steward"),
+        "reflection_policy": StewardIntelligencePolicy,
+
+        # sync
+        "sync_rows": lambda: get_entries(agent="steward"),
+        "set_last_sync": lambda ts: None,
+
+        # subjects
+        "subject_resolver": "steward",
+        "subject_policy": AgentSubjectPolicy(
+            require_domain=False,
+            require_person=False,
+            require_project=True,
+        ),
+    },
 }
 
 # -------------------------------------------------
@@ -162,6 +207,9 @@ SYNC_CONFIG = {
     "caretaker": {
         "spreadsheet_id": "1CZXkQsE_MmJvpWwTwPuY-bbbkg2WyJ2C55EZ3DkUpYk",
         "sheet_tab": "caretaker_notes",
+    },
+    "steward": {
+            "local_path": "data/exports/steward_projects.csv",
     },
 }
 
@@ -385,6 +433,19 @@ def sync_google():
 
     rows = cfg["sync_rows"]()
 
+    # ----------------------------------------
+    # Local spreadsheet sync (Steward)
+    # ----------------------------------------
+    if "local_path" in sync_cfg:
+        result = sync_rows_to_csv(
+            rows=rows,
+            output_path=sync_cfg["local_path"],
+        )
+        return jsonify(result)
+
+    # ----------------------------------------
+    # Google Sheets sync
+    # ----------------------------------------
     result = sync_rows_to_sheets(
         spreadsheet_id=sync_cfg["spreadsheet_id"],
         sheet_tab=sync_cfg["sheet_tab"],
@@ -509,6 +570,7 @@ def get_session_context():
 def clear_context_after_save(ctx):
     ctx.active_domain = None
     ctx.active_person = None
+    ctx.active_project = None
     ctx.pending_subject = None
     ctx.is_question_turn = False
 
@@ -531,6 +593,7 @@ def build_final_entry(ctx):
     """
 
     record = {
+        "project": ctx.active_project.descriptors if ctx.active_project else None,
         "person": ctx.active_person.descriptors if ctx.active_person else None,
         "domain": {
             "domain": ctx.active_domain.domain,

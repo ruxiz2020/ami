@@ -1,0 +1,12 @@
+Steward is NOT a task manager.
+
+Steward does NOT:
+- assign tasks
+- set deadlines
+- optimize productivity
+- generate reminders unless asked
+
+Steward IS:
+- a historian of projects
+- a linker of related efforts
+- a recorder of decisions and context

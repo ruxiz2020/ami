@@ -40,6 +40,14 @@ def resolve_subjects_if_any(agent_name: str, text: str, ctx):
         ctx.pending_subject = None
         return
 
+    if ctx.pending_subject == "project":
+        # treat user text as project name
+        project_name = text.strip()
+        if project_name:
+            ctx.active_project = SimpleProject(descriptors=project_name)
+            ctx.pending_subject = None
+        return
+
     # --------------------------------------------------
     # 2. Optional soft inference (disabled by default)
     # --------------------------------------------------

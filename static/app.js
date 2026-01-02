@@ -30,7 +30,11 @@ const AGENT_UI = {
   caretaker: {
     title: "Caretaker",
     subtitle: "Keep a clear record of family medical history and health events",
-  }
+  },
+  steward: {
+    title: "Steward",
+    subtitle: "Track and document long-running projects and decisions",
+  },
 };
 
 
@@ -300,10 +304,14 @@ async function syncNow() {
 
     if (res.ok) {
       const now = new Date().toLocaleTimeString();
-      status.textContent =
-        `Last synced at ${now} (${data.inserted} new, ${data.updated} updated)`;
-    } else {
-      status.textContent = "Sync failed";
+
+      if (data.path) {
+        status.textContent =
+            `Exported locally at ${now} (${data.rows_written} rows)`;
+      } else {
+        status.textContent =
+            `Last synced at ${now} (${data.inserted} new, ${data.updated} updated)`;
+      }
     }
   } catch (err) {
     console.error(err);

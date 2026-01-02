@@ -1,155 +1,179 @@
-# 🏡 Family Assistants
+# 🧠 Ami Agent System — Local Setup & Usage
 
-A local-first, privacy-respecting **multi-agent personal assistant platform** designed to help families record, organize, and reflect on important aspects of their lives — calmly, safely, and over time.
+This project is a **local, multi-agent system** designed to run entirely on your machine.
 
-This repository hosts **multiple domain-specific assistants**, each with a clear role and strict boundaries, built on shared infrastructure.
+All agents (`ami`, `workbench`, `caretaker`, `steward`) share:
+- a single Flask app
+- a shared UI
+- shared session & subject resolution
+- shared intelligence and enforcement logic
 
----
-
-## ✨ Core Principles
-
-- **One family, many assistants**
-- **Clear domains, no role confusion**
-- **Observational first, intelligence later**
-- **Local-first by default**
-- **User owns and controls all data**
-
-Assistants in this repo are designed to **support reflection and organization**, not to diagnose, judge, or replace professional advice.
+Each agent has its own:
+- prompts
+- storage
+- intelligence policy
+- sync behavior
 
 ---
 
-## 🤖 Assistants
+## 🚀 Local Setup & Run
 
-### 🌱 Ami — Child Development Assistant
-A gentle, observational companion that helps parents:
-- Notice and record daily moments
-- Organize child development observations
-- Reflect on patterns over time
-- Prepare neutral summaries (e.g. for pediatrician visits)
+### 1️⃣ Create and activate a virtual environment
 
-> **Ami is intentionally observational in v1.**  
-> She does not give advice, guidance, or developmental interpretation.
+From the project root:
 
-Documentation: `docs/agents/ami.md`
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
 ---
 
-### 🩺 Meda — Family Medical History Assistant *(planned)*
-A calm, structured assistant for recording and organizing:
-- Medical history
-- Diagnoses
-- Medications
-- Procedures
-- Family health timelines
+### 2️⃣ Run the app
 
-Meda focuses on **accurate recall and export**, not interpretation or medical advice.
+The system runs as a **single Flask app**.
 
-Documentation: `docs/agents/meda.md` *(future)*
+```bash
+python app.py
+```
 
----
+or equivalently:
 
-### 🚀 Sideline — Personal Side Project & Growth Assistant
+```bash
+python -m app
+```
 
-A structured assistant for **tracking, organizing, and reflecting on side projects, learning goals, and long-term personal development**.
+The UI will be available at:
 
-Sideline helps you:
-- Capture ideas, experiments, and work-in-progress thoughts
-- Track multiple side projects over time
-- Record decisions, pivots, and learnings
-- Reflect on progress without pressure
-- Maintain continuity across long gaps
-
-Sideline is designed for **creative and intellectual work that evolves slowly**, such as:
-- Personal software projects
-- Research explorations
-- Writing or content creation
-- Career skill development
-- Long-term learning goals
-
-> **Sideline is observational by default.**  
-> In early versions, it focuses on recording, organizing, and reflecting — not on productivity coaching or optimization.
-
-Documentation: `docs/agents/sideline.md`
+```
+http://127.0.0.1:5000
+```
 
 ---
 
-### 👗 Style — Personal Styling & Wardrobe Assistant
+## 🧭 Agents Overview
 
-A calm, observational assistant for **recording outfits, wardrobe items, and personal style evolution over time**.
+| Agent | Purpose |
+|------|--------|
+| **ami** | Capture and reflect on observations |
+| **workbench** | Long-term learning and knowledge capture |
+| **caretaker** | Health and caregiving records |
+| **steward** | Project tracking and documentation |
 
-Style helps you:
-- Log daily outfits or special looks (OOTD)
-- Organize wardrobe items and combinations
-- Track what you actually wear vs. what sits unused
-- Reflect on comfort, confidence, and context
-- Notice long-term style patterns without judgment
-
-Style is designed to support:
-- Personal style exploration
-- Practical wardrobe awareness
-- Reduced decision fatigue
-- Sustainable, intentional dressing
-
-> **Style is observational by default.**  
-> In early versions, it does not rate appearances, judge aesthetics, or push trends.
-
-Documentation: `docs/agents/style.md`
+You can switch the active agent via the UI or API.
 
 ---
 
+## 💬 Example Conversations
 
+The chat interface adapts automatically based on the active agent.
 
-## 🧠 Architecture Overview
+Examples:
+- “Today I noticed she slept less than usual.” → **ami**
+- “I learned why this BigQuery query is expensive.” → **workbench**
+- “Fever started last night.” → **caretaker**
+- “We decided to gate this feature behind LaunchDarkly.” → **steward**
 
-This is a **monorepo with strict agent isolation**.
-
-- Each assistant has:
-  - Its own system prompt
-  - Its own memory schema
-  - Its own behavioral rules
-- All assistants share:
-  - Local storage infrastructure
-  - Encryption and privacy primitives
-  - Family identity models
-  - UI shell components
-
-> **Same repo ≠ same agent**
+All records are stored **locally** unless explicitly synced.
 
 ---
 
-## 📁 Repository Structure
+## 🗄️ Inspect Local Databases
 
-```text
-family-assistants/
-├── README.md
-├── docs/
-│   ├── philosophy.md
-│   ├── privacy.md
-│   └── agents/
-│       ├── ami.md
-│       └── meda.md
-│
-├── core/                     # shared infrastructure
-│   ├── storage/
-│   ├── identity/
-│   ├── encryption/
-│   └── ui/
-│
-├── agents/
-│   ├── ami/
-│   │   ├── prompt.py
-│   │   ├── memory.py
-│   │   ├── logic.py
-│   │   └── ui.py
-│   │
-│   ├── meda/
-│   │   └── ...
-│   │
-│   └── __init__.py
-│
-├── app/
-│   ├── main.py               # Flask entry point
-│   ├── router.py             # agent selection / switching
-│   └── settings.py
-│
-└── requirements.txt
+Each agent stores data in its own SQLite database under `agents/<agent>/data/`.
+
+### Example: inspect Ami observations
+
+```bash
+sqlite3 agents/ami/data/ami.db
+.tables
+SELECT * FROM observations;
+```
+
+### Example: inspect Steward project events
+
+```bash
+sqlite3 agents/steward/data/steward.db
+.tables
+SELECT * FROM project_events;
+```
+
+---
+
+## 🔄 Syncing Data
+
+Sync behavior is **agent-specific**.
+
+### 🔹 Google Sheets Sync (Ami, Workbench, Caretaker)
+
+Some agents support syncing to Google Sheets.
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/sync/google \
+  -H "Content-Type: application/json"
+```
+
+> The destination spreadsheet and sheet tab are defined internally per agent.
+
+---
+
+### 🔹 Local Spreadsheet Sync (Steward)
+
+The **steward agent syncs to a local spreadsheet** (CSV).
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/sync/google \
+  -H "Content-Type: application/json" \
+  -d '{"agent": "steward"}'
+```
+
+This writes a file such as:
+
+```
+data/exports/steward_projects.csv
+```
+
+No external authentication is required.
+
+---
+
+## 🧠 Intelligence & Reflections
+
+Some agents support periodic reflections (e.g. weekly summaries).
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/intelligence/ami/weekly_reflection
+```
+
+Reports are stored locally and can be retrieved via:
+
+```bash
+curl http://127.0.0.1:5000/api/intelligence/ami/reports
+```
+
+---
+
+## 🔐 Design Principles
+
+- **Local-first**: All data is stored locally by default
+- **Explicit saves**: Nothing is saved without user confirmation
+- **Append-only**: Records are never silently rewritten
+- **Agent-scoped**: Each agent controls its own behavior and storage
+- **Shared infrastructure**: UI, session, subjects, and enforcement are shared
+
+---
+
+## 🧩 Adding a New Agent
+
+To add a new agent:
+1. Create `agents/<agent_name>/`
+2. Add:
+  - `intelligence_policy.py`
+  - `storage.py`
+  - `prompts/`
+3. Register the agent in `app.py` under `AGENTS`
+
+No UI or routing changes are required.

@@ -8,6 +8,7 @@ class SessionContext:
         # Resolved subjects
         self.active_domain = None
         self.active_person = None
+        self.active_project = None
 
         # What clarification we are waiting for:
         # None | "person" | "domain"

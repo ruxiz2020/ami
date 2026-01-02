@@ -7,3 +7,4 @@ class AgentSubjectPolicy:
     """
     require_domain: bool = False
     require_person: bool = False
+    require_project: bool = False

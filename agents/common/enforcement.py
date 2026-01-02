@@ -15,4 +15,9 @@ def enforce_subjects(policy, ctx):
         ctx.pending_subject = "domain"
         return False, "请先说明这条记录属于哪一类。"
 
+    # project enforcement
+    if policy.require_project and ctx.active_project is None:
+        ctx.pending_subject = "project"
+        return False, "这条记录属于哪个项目？请给出项目名称。"
+
     return True, None
