@@ -196,9 +196,6 @@ def summarize_steward(entries):
     for project, evts in groups.items():
         texts = []
 
-        # ----------------------------------
-        # Extract human-written text blocks
-        # ----------------------------------
         for e in evts:
             raw = e.get("text") or e.get("content")
             if not isinstance(raw, str):
@@ -219,12 +216,9 @@ def summarize_steward(entries):
             elif isinstance(content, str) and content.strip():
                 texts.append(content.strip())
 
-        # ----------------------------------
-        # Build summary + bullets
-        # ----------------------------------
         if texts:
-            summary = texts[0][:160]  # concise sentence/line
-            bullets = texts[1:4]      # next 2–3 points
+            summary = _extract_summary(texts[0], max_len=320, max_sentences=3)
+            bullets = _extract_bullets(texts[0], limit=4)
         else:
             summary = f"{len(evts)} updates recorded"
             bullets = []
@@ -234,7 +228,7 @@ def summarize_steward(entries):
             "count": len(evts),
             "last_updated": _latest_timestamp(evts),
             "summary": summary,
-            "bullets": bullets,   # 👈 NEW
+            "bullets": bullets,
         })
 
     return {
@@ -246,6 +240,7 @@ def summarize_steward(entries):
             reverse=True,
         ),
     }
+
 
 
 
@@ -261,3 +256,64 @@ def generate_category_summary(agent_name, entries):
 
     raise ValueError(f"Unsupported agent for category summary: {agent_name}")
 
+
+
+import re
+
+def _extract_summary(text: str, max_len: int = 320, max_sentences: int = 3) -> str:
+    """
+    Deterministically extract up to N sentences without cutting words.
+    """
+    if not text:
+        return ""
+
+    text = " ".join(text.split())
+
+    # Split into sentences
+    sentences = re.split(r"(?<=[.。!?])\s+", text)
+
+    summary_parts = []
+    total_len = 0
+
+    for s in sentences:
+        s = s.strip()
+        if not s:
+            continue
+
+        if total_len + len(s) > max_len:
+            break
+
+        summary_parts.append(s)
+        total_len += len(s)
+
+        if len(summary_parts) >= max_sentences:
+            break
+
+    return " ".join(summary_parts)
+
+
+def _extract_bullets(text: str, limit: int = 4) -> list[str]:
+    """
+    Extract bullet-like phrases deterministically.
+    """
+    if not text:
+        return []
+
+    text = " ".join(text.split())
+
+    # Split on double spaces, numbers, or separators
+    parts = re.split(r"\s{2,}|\d+\.\s+| - | • | \u2022 ", text)
+
+    bullets = []
+    for p in parts:
+        p = p.strip()
+        if len(p) < 20:
+            continue
+        if p.lower().startswith("overall outcome"):
+            continue
+        bullets.append(p)
+
+        if len(bullets) >= limit:
+            break
+
+    return bullets
