@@ -383,20 +383,115 @@ main {
 
 
 
-.daily-summary {
+.hidden {
+  display: none !important;
+}
+
+
+/* Category Summary */
+#category-summary {
   margin-top: 16px;
-  padding: 12px;
-  background: #f7f8f7;
-  border-radius: 8px;
+}
+
+.summary-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 16px;
+  padding: 10px 12px;
+  background: #ffffff;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.summary-project {
+  font-weight: 600;
   font-size: 0.9em;
+  color: #333;
 }
 
-.daily-summary h3 {
-  margin-top: 0;
-  font-size: 0.95em;
+.summary-preview {
+  font-size: 0.85em;
+  color: #666;
+  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.daily-events .event {
-  margin-bottom: 6px;
+.summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
 }
 
+#regen-summary-btn {
+  font-size: 0.75em;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: none;
+  background: #e0e0e0;
+  cursor: pointer;
+}
+
+#regen-summary-btn:hover {
+  opacity: 0.85;
+}
+
+
+.summary-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 16px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  align-items: start;
+}
+
+.summary-project {
+  font-weight: 600;
+  font-size: 0.9em;
+  color: #333;
+  padding-top: 2px;
+}
+
+.summary-preview {
+  font-size: 0.85em;
+  color: #555;
+  line-height: 1.5;
+}
+
+.summary-text {
+  line-height: 1.5;
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Collapsed */
+.summary-text[data-expanded="false"] {
+  max-height: calc(1.5em * 2); /* exactly 2 lines */
+}
+
+/* Expanded */
+.summary-text[data-expanded="true"] {
+  max-height: none;          /* fully expand */
+}
+
+
+.summary-toggle {
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #6a8f87;
+  font-size: 0.75em;
+  cursor: pointer;
+}
+
+.summary-toggle:hover {
+  text-decoration: underline;
+}

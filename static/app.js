@@ -52,8 +52,6 @@ async function loadTimeline() {
     const rawData = await res.json();
     const data = (rawData || []).map(normalizeEntry);
 
-    loadDailySummary(data);
-
     const timeline = document.getElementById("timeline");
     timeline.innerHTML = "";
 
@@ -350,7 +348,6 @@ async function switchAgent(agent) {
   pendingObservation = null;
   hideSaveActions();
 
-  clearDailySummary();
   loadTimeline();
   loadReflections();
   loadCategorySummary();
@@ -473,27 +470,6 @@ function getAgentPayload(extra = {}) {
 }
 
 
-function loadDailySummary(entries) {
-  const box = document.getElementById("daily-events");
-  if (!box) return;
-
-  const today = new Date().toISOString().slice(0, 10);
-  const todays = entries.filter(e => e.date.startsWith(today));
-
-  if (todays.length === 0) {
-    box.innerHTML = "<p class='muted'>No entries today.</p>";
-    return;
-  }
-
-  box.innerHTML = "";
-  todays.forEach(e => {
-    const div = document.createElement("div");
-    div.className = "event";
-    div.textContent = "• " + e.text;
-    box.appendChild(div);
-  });
-}
-
 
 function normalizeEntry(raw) {
   return {
@@ -505,74 +481,127 @@ function normalizeEntry(raw) {
 }
 
 
-function clearDailySummary() {
-  const box = document.getElementById("daily-events");
-  if (box) {
-    box.innerHTML = "<p class='muted'>Loading…</p>";
-  }
-}
-
 
 
 async function loadCategorySummary() {
   const agent = getActiveAgent();
   const panel = document.getElementById("category-summary");
-  const list = document.getElementById("summary-list");
+  const title = document.getElementById("category-summary-title");
+  const list = document.getElementById("category-summary-list");
 
+  // Reset UI
   panel.classList.add("hidden");
+  title.textContent = "";
   list.innerHTML = "";
 
   try {
-    // ---------------------------------------------
-    // STEP 1: Ensure summary exists (generate/update)
-    // ---------------------------------------------
-    await fetch(
-        `/api/intelligence/${agent}/category_summary`,
-        { method: "POST" }
-    );
-
-    // ---------------------------------------------
-    // STEP 2: Load summary report
-    // ---------------------------------------------
+    // --------------------------------------------
+    // Fetch summary (read-only)
+    // --------------------------------------------
     const res = await fetch(
         `/api/intelligence/${agent}/reports?type=category_summary`
     );
     const data = await res.json();
 
-    const reports = data.reports || [];
-    if (reports.length === 0) {
-      panel.classList.add("hidden");
+    if (!data.reports || data.reports.length === 0) {
       return;
     }
 
-    const summary = reports[0].content;
-    if (!summary || !summary.items || summary.items.length === 0) {
-      panel.classList.add("hidden");
-      return;
+    // --------------------------------------------
+    // Normalize content
+    // --------------------------------------------
+    let summary = data.reports[0].content;
+
+    if (typeof summary === "string") {
+      try {
+        summary = JSON.parse(summary);
+      } catch (e) {
+        console.error("Failed to parse category summary JSON", summary);
+        return;
+      }
     }
 
-    // ---------------------------------------------
-    // STEP 3: Render
-    // ---------------------------------------------
+    if (!summary || !summary.items) return;
+
+    let items = Array.isArray(summary.items)
+        ? summary.items
+        : Object.values(summary.items);
+
+    if (!items.length) return;
+
+    // ------------------------------------------------
+    // 4️⃣ Render (panel-level)
+    // ------------------------------------------------
+    title.textContent = `Summary by ${summary.category_label || "Project"}`;
+
+    // IMPORTANT: unhide panel BEFORE rendering rows
     panel.classList.remove("hidden");
 
-    summary.items.forEach(item => {
+    // Clear again just in case
+    list.innerHTML = "";
+
+    items.forEach(item => {
       const div = document.createElement("div");
+      div.className = "summary-row";
+
+      const bulletsHtml = (item.bullets || [])
+          .map(b => `<li>${escapeHtml(b)}</li>`)
+          .join("");
+
       div.innerHTML = `
-        <strong>${escapeHtml(item.category)}</strong>
-        <div class="muted">
-          ${item.count} entries ·
-          Last updated ${new Date(item.last_updated).toLocaleDateString()}
+        <div class="summary-project">
+          ${escapeHtml(item.category)}
+        </div>
+        <div class="summary-preview">
+          <div class="summary-sentence">
+            ${escapeHtml(item.summary)}
+          </div>
+    
+          ${bulletsHtml
+              ? `<ul class="summary-bullets">${bulletsHtml}</ul>`
+              : ""
+          }
         </div>
       `;
+
       list.appendChild(div);
     });
+
 
   } catch (err) {
     console.error("Failed to load category summary", err);
     panel.classList.add("hidden");
   }
 }
+
+
+
+
+
+
+async function regenerateCategorySummary() {
+  const agent = getActiveAgent();
+  const btn = document.getElementById("regen-summary-btn");
+
+  btn.disabled = true;
+  btn.textContent = "Regenerating…";
+
+  try {
+    await fetch(
+        `/api/intelligence/${agent}/category_summary`,
+        { method: "POST" }
+    );
+
+    await loadCategorySummary();  // reload after regenerate
+  } catch (err) {
+    console.error("Failed to regenerate summary", err);
+    alert("Failed to regenerate summary.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Regenerate";
+  }
+}
+
 
 
 

@@ -1,0 +1,39 @@
+You are generating a weekly reflection based on the following project records.
+
+These are the project-related entries recorded by the user:
+
+{entries}
+
+IMPORTANT RULES:
+- Write the reflection in the SAME LANGUAGE as the entries.
+- Do not translate unless the entries themselves mix languages.
+- Do not introduce new facts, plans, or interpretations.
+- Do not speculate about causes, outcomes, or next steps.
+- Do not give advice, recommendations, or instructions.
+- Do not evaluate success or failure.
+- Use neutral, factual, and descriptive language only.
+- Treat all records as documentation of what was noted, not analysis.
+
+OUTPUT REQUIREMENTS:
+- The reflection must be concise.
+- Total length should be approximately 150–250 words.
+- Use short paragraphs (2–4 sentences each).
+- The tone should resemble a professional project log summary.
+
+You MUST include all sections below.
+
+## Summary
+In 2–3 sentences, summarize the kinds of project-related updates recorded this week.
+Describe the nature of the entries, such as decisions, progress updates, blockers, or coordination notes, without focusing on counts alone.
+
+## Areas of Focus
+List 1–2 areas of focus.
+For each area, write 1–2 sentences describing what the entries collectively show the user was paying attention to.
+Phrase these as observations about what was being tracked or documented.
+
+## Notable Updates
+Briefly describe 1 specific update from the entries that stands out.
+Paraphrase concrete details that were recorded, staying close to the original wording.
+
+Do not add any extra sections.
+Do not stop mid-sentence.

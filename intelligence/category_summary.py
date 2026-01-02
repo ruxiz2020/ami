@@ -34,21 +34,53 @@ def _latest_timestamp(entries):
     return max(ts) if ts else None
 
 
-def _recent_highlights(entries, limit=2):
+import json
+
+def _recent_highlights(entries, limit=1):
     """
-    Extract recent textual highlights (no interpretation).
+    Return long-form human-written content for recent Steward entries.
+    Guaranteed to extract text if it exists anywhere.
     """
     highlights = []
-    for e in entries[-limit:]:
-        parsed = _safe_parse_content(e)
-        content = parsed.get("content")
 
-        if isinstance(content, list):
-            highlights.extend(content)
-        elif isinstance(content, str):
-            highlights.append(content)
+    for e in reversed(entries):
+        text = None
 
-    return highlights[:limit]
+        # 1) Direct text field (if present)
+        if isinstance(e.get("text"), str) and e["text"].strip():
+            text = e["text"].strip()
+
+        # 2) Content field may be JSON string or dict
+        raw = e.get("content")
+        parsed = None
+
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                pass
+        elif isinstance(raw, dict):
+            parsed = raw
+
+        if parsed and not text:
+            content = parsed.get("content")
+
+            # content can be list[str]
+            if isinstance(content, list) and content:
+                text = content[0].strip()
+
+            # or a single string
+            elif isinstance(content, str) and content.strip():
+                text = content.strip()
+
+        if text:
+            highlights.append(text)
+
+        if len(highlights) >= limit:
+            break
+
+    return highlights
+
 
 
 
@@ -148,23 +180,61 @@ def summarize_workbench(entries):
     }
 
 
+import json
+from collections import defaultdict
+
 def summarize_steward(entries):
     groups = defaultdict(list)
 
     for e in entries:
-        parsed = _safe_parse_content(e)
-        project = parsed.get("project")
-        if not project:
-            continue
-        groups[project].append(e)
+        project = e.get("subject")
+        if project:
+            groups[project].append(e)
 
     items = []
+
     for project, evts in groups.items():
+        texts = []
+
+        # ----------------------------------
+        # Extract human-written text blocks
+        # ----------------------------------
+        for e in evts:
+            raw = e.get("text") or e.get("content")
+            if not isinstance(raw, str):
+                continue
+
+            try:
+                parsed = json.loads(raw)
+                content = parsed.get("content")
+            except Exception:
+                content = raw
+
+            if isinstance(content, list):
+                texts.extend(
+                    line.strip()
+                    for line in content
+                    if isinstance(line, str) and line.strip()
+                )
+            elif isinstance(content, str) and content.strip():
+                texts.append(content.strip())
+
+        # ----------------------------------
+        # Build summary + bullets
+        # ----------------------------------
+        if texts:
+            summary = texts[0][:160]  # concise sentence/line
+            bullets = texts[1:4]      # next 2–3 points
+        else:
+            summary = f"{len(evts)} updates recorded"
+            bullets = []
+
         items.append({
             "category": project,
             "count": len(evts),
             "last_updated": _latest_timestamp(evts),
-            "highlights": _recent_highlights(evts),
+            "summary": summary,
+            "bullets": bullets,   # 👈 NEW
         })
 
     return {
@@ -172,10 +242,11 @@ def summarize_steward(entries):
         "category_label": "Project",
         "items": sorted(
             items,
-            key=lambda x: x["last_updated"] or "",
+            key=lambda x: x.get("last_updated") or "",
             reverse=True,
         ),
     }
+
 
 
 def generate_category_summary(agent_name, entries):

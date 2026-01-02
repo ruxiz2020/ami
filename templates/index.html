@@ -59,12 +59,22 @@
         </div>
       </section>
 
-      <section class="daily-summary">
-        <h3>Today</h3>
-        <div id="daily-events" class="daily-events">
-          <p class="muted">No entries yet.</p>
+      <!-- Category Summary Panel -->
+      <div id="category-summary" class="panel hidden">
+        <div class="summary-header">
+          <h3 id="category-summary-title"></h3>
+          <button
+                  id="regen-summary-btn"
+                  class="secondary small"
+                  onclick="regenerateCategorySummary()">
+            Regenerate
+          </button>
         </div>
-      </section>
+
+        <div id="category-summary-list"></div>
+      </div>
+
+
     </div>
 
     <!-- RIGHT COLUMN -->

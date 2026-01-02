@@ -33,13 +33,17 @@ def save_report(report: dict):
     conn = get_conn()
     cur = conn.cursor()
 
+    content = report["content"]
+    if not isinstance(content, str):
+        content = json.dumps(content, ensure_ascii=False)
+
     cur.execute("""
         INSERT INTO reports (agent, type, content, created_at)
         VALUES (?, ?, ?, ?)
     """, (
         report["agent"],
         report["type"],
-        report["content"],
+        content,
         report["created_at"],
     ))
 
@@ -47,7 +51,9 @@ def save_report(report: dict):
     conn.close()
 
 
-def get_reports(agent: str, report_type: str):
+import json
+
+def get_reports(agent: str, report_type: str | None = None):
     conn = get_conn()
     cur = conn.cursor()
 
@@ -69,16 +75,30 @@ def get_reports(agent: str, report_type: str):
     rows = cur.fetchall()
     conn.close()
 
-    return [
-        {
+    results = []
+    for r in rows:
+        raw_content = r[3]
+
+        # -----------------------------------------
+        # Attempt to deserialize JSON content
+        # -----------------------------------------
+        content = raw_content
+        if isinstance(raw_content, str):
+            try:
+                content = json.loads(raw_content)
+            except Exception:
+                # Not JSON → keep as plain string (LLM output)
+                content = raw_content
+
+        results.append({
             "id": r[0],
             "agent": r[1],
             "type": r[2],
-            "content": r[3],
+            "content": content,
             "created_at": r[4],
-        }
-        for r in rows
-    ]
+        })
+
+    return results
 
 
 
