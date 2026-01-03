@@ -114,15 +114,10 @@ def summarize_ami(entries):
     }
 
 
-from collections import defaultdict
-import json
-
 def summarize_caretaker(entries):
     groups = defaultdict(list)
 
-    # ----------------------------------
-    # Group by person (subject)
-    # ----------------------------------
+    # Group by subject (person)
     for e in entries:
         person = e.get("subject")
         if person:
@@ -133,6 +128,9 @@ def summarize_caretaker(entries):
     for person, evts in groups.items():
         texts = []
 
+        # -----------------------------
+        # Collect raw human text
+        # -----------------------------
         for e in evts:
             raw = e.get("text") or e.get("content")
             if not isinstance(raw, str):
@@ -146,19 +144,45 @@ def summarize_caretaker(entries):
 
             if isinstance(content, list):
                 texts.extend(
-                    line.strip()
-                    for line in content
-                    if isinstance(line, str) and line.strip()
+                    _normalize_text(t)
+                    for t in content
+                    if isinstance(t, str) and t.strip()
                 )
             elif isinstance(content, str) and content.strip():
-                texts.append(content.strip())
+                texts.append(_normalize_text(content))
 
-        if texts:
-            summary = _extract_summary(texts[0], max_len=260, max_sentences=2)
-            bullets = _extract_bullets(texts[0], limit=3)
-        else:
-            summary = f"{len(evts)} records noted"
+        if not texts:
+            summary = f"{len(evts)} 条医疗记录"
             bullets = []
+        else:
+            # -----------------------------
+            # Deduplicate text blocks
+            # -----------------------------
+            seen = set()
+            unique = []
+            for t in texts:
+                if t not in seen:
+                    seen.add(t)
+                    unique.append(t)
+
+            # -----------------------------
+            # Split into clauses
+            # -----------------------------
+            clauses = []
+            for t in unique:
+                clauses.extend(_split_into_clauses(t))
+
+            # -----------------------------
+            # Build summary + bullets
+            # -----------------------------
+            summary = clauses[0] if clauses else unique[0][:120]
+
+            bullets = []
+            for c in clauses[1:]:
+                if c not in bullets:
+                    bullets.append(c)
+                if len(bullets) >= 4:
+                    break
 
         items.append({
             "category": person,
@@ -344,3 +368,17 @@ def _extract_bullets(text: str, limit: int = 4) -> list[str]:
             break
 
     return bullets
+
+
+
+
+def _normalize_text(t: str) -> str:
+    return " ".join(t.split())
+
+def _split_into_clauses(text: str) -> list[str]:
+    """
+    Split text into readable clauses without semantic assumptions.
+    Works for Chinese and English.
+    """
+    parts = re.split(r"[。.!?\n]+", text)
+    return [p.strip() for p in parts if len(p.strip()) >= 8]
