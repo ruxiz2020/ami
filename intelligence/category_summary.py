@@ -114,42 +114,70 @@ def summarize_ami(entries):
     }
 
 
+from collections import defaultdict
+import json
+
 def summarize_caretaker(entries):
     groups = defaultdict(list)
 
+    # ----------------------------------
+    # Group by person (subject)
+    # ----------------------------------
     for e in entries:
-        parsed = _safe_parse_content(e)
-
-        person = parsed.get("person")
-        domain = parsed.get("domain", {}).get("domain")
-
-        if not person:
-            continue
-
-        label = person
-        if domain:
-            label = f"{person} · {domain}"
-
-        groups[label].append(e)
+        person = e.get("subject")
+        if person:
+            groups[person].append(e)
 
     items = []
-    for label, evts in groups.items():
+
+    for person, evts in groups.items():
+        texts = []
+
+        for e in evts:
+            raw = e.get("text") or e.get("content")
+            if not isinstance(raw, str):
+                continue
+
+            try:
+                parsed = json.loads(raw)
+                content = parsed.get("content")
+            except Exception:
+                content = raw
+
+            if isinstance(content, list):
+                texts.extend(
+                    line.strip()
+                    for line in content
+                    if isinstance(line, str) and line.strip()
+                )
+            elif isinstance(content, str) and content.strip():
+                texts.append(content.strip())
+
+        if texts:
+            summary = _extract_summary(texts[0], max_len=260, max_sentences=2)
+            bullets = _extract_bullets(texts[0], limit=3)
+        else:
+            summary = f"{len(evts)} records noted"
+            bullets = []
+
         items.append({
-            "category": label,
+            "category": person,
             "count": len(evts),
             "last_updated": _latest_timestamp(evts),
-            "highlights": _recent_highlights(evts),
+            "summary": summary,
+            "bullets": bullets,
         })
 
     return {
         "summary_type": "category_summary",
-        "category_label": "Family Member / Health Area",
+        "category_label": "Family Member",
         "items": sorted(
             items,
-            key=lambda x: x["last_updated"] or "",
+            key=lambda x: x.get("last_updated") or "",
             reverse=True,
         ),
     }
+
 
 
 def summarize_workbench(entries):
@@ -180,8 +208,7 @@ def summarize_workbench(entries):
     }
 
 
-import json
-from collections import defaultdict
+
 
 def summarize_steward(entries):
     groups = defaultdict(list)

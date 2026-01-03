@@ -1,13 +1,15 @@
 from agents.common.storage import add_entry, get_entries
+from agents.common.storage import add_entry as common_add_entry
 
-def add_medical_entry(text, person=None, tags=None):
-    add_entry(
+def add_medical_entry(payload):
+    # payload is dict: {text, subject}
+    common_add_entry(
         agent="caretaker",
         type="medical",
-        subject=person,   # 👈 family member
-        tags=tags,
-        content=text,
+        subject=payload.get("subject"),
+        content=payload.get("text"),
     )
+
 
 def get_all_medical_entries():
     return get_entries(agent="caretaker", type="medical")

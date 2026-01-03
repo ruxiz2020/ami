@@ -264,8 +264,14 @@ def add_entry():
     if not text:
         return jsonify({"error": "Empty entry"}), 400
 
+    # -------------------------------------------------
+    # Load persistent conversation context
+    # -------------------------------------------------
     ctx = get_session_context()
 
+    # -------------------------------------------------
+    # Resolve subjects (may ask clarification)
+    # -------------------------------------------------
     resolve_subjects_if_any(agent, text, ctx)
 
     policy = cfg.get("subject_policy")
@@ -277,10 +283,31 @@ def add_entry():
                 "message": msg,
             }), 400
 
-    cfg["add_entry"](text)
+    # -------------------------------------------------
+    # Build payload GENERICALLY
+    # -------------------------------------------------
+    payload = {
+        "text": text,
+        "subject": None,
+    }
+
+    # If a subject was resolved, persist it
+    if ctx.active_person:
+        payload["subject"] = ctx.active_person.descriptors.get("name")
+
+    elif ctx.active_domain:
+        # Optional future use (Workbench / Ami grouping)
+        payload["subject"] = ctx.active_domain.domain
+
+    # -------------------------------------------------
+    # Persist entry
+    # -------------------------------------------------
+    cfg["add_entry"](payload)
+
     clear_context_after_save(ctx)
 
     return jsonify({"status": "saved"})
+
 
 
 @app.route("/api/observations", methods=["GET"])
@@ -622,12 +649,7 @@ def user_wants_to_save(text: str) -> bool:
 
 
 def build_final_entry(ctx):
-    """
-    Build a JSON-serializable record for storage.
-    """
-
     record = {
-        "project": ctx.active_project.descriptors if ctx.active_project else None,
         "person": ctx.active_person.descriptors if ctx.active_person else None,
         "domain": {
             "domain": ctx.active_domain.domain,
@@ -637,7 +659,15 @@ def build_final_entry(ctx):
         "created_at": datetime.utcnow().isoformat(),
     }
 
-    return json.dumps(record, ensure_ascii=False)
+    subject = None
+    if ctx.active_person:
+        subject = ctx.active_person.descriptors.get("user_provided")
+
+    return {
+        "text": json.dumps(record, ensure_ascii=False),
+        "subject": subject,
+    }
+
 
 
 def is_control_or_subject_answer(ctx, text: str) -> bool:
