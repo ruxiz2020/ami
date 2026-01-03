@@ -53,7 +53,7 @@ def save_report(report: dict):
 
 import json
 
-def get_reports(agent: str, report_type: str | None = None):
+def get_reports(agent: str, report_type: str):
     conn = get_conn()
     cur = conn.cursor()
 
@@ -101,4 +101,14 @@ def get_reports(agent: str, report_type: str | None = None):
     return results
 
 
+
+def delete_reports_by_type(agent: str, report_type: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM reports WHERE agent = ? AND type = ?",
+        (agent, report_type),
+    )
+    conn.commit()
+    conn.close()
 

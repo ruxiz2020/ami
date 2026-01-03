@@ -5,27 +5,7 @@ from collections import defaultdict
 from datetime import datetime
 
 
-def _safe_parse_content(entry):
-    """
-    Parse entry["content"] if it's JSON; otherwise return empty dict.
-    """
-    raw = entry.get("content")
-    if not raw:
-        return {}
-
-    if isinstance(raw, dict):
-        return raw
-
-    try:
-        return json.loads(raw)
-    except Exception:
-        return {}
-
-
 def _latest_timestamp(entries):
-    """
-    Return ISO timestamp string of the latest entry.
-    """
     ts = [
         e.get("created_at") or e.get("updated_at")
         for e in entries
@@ -34,229 +14,37 @@ def _latest_timestamp(entries):
     return max(ts) if ts else None
 
 
-import json
-
-def _recent_highlights(entries, limit=1):
+def _collect_raw_text(entries):
     """
-    Return long-form human-written content for recent Steward entries.
-    Guaranteed to extract text if it exists anywhere.
+    Normalize all entries into a list of human-written text strings.
+
+    Rules:
+    - Plain text content is ALWAYS valid (Ami / Workbench)
+    - JSON content with nested list is unpacked (Caretaker / Steward)
+    - Never drop raw text just because JSON parsing fails
     """
-    highlights = []
-
-    for e in reversed(entries):
-        text = None
-
-        # 1) Direct text field (if present)
-        if isinstance(e.get("text"), str) and e["text"].strip():
-            text = e["text"].strip()
-
-        # 2) Content field may be JSON string or dict
-        raw = e.get("content")
-        parsed = None
-
-        if isinstance(raw, str):
-            try:
-                parsed = json.loads(raw)
-            except Exception:
-                pass
-        elif isinstance(raw, dict):
-            parsed = raw
-
-        if parsed and not text:
-            content = parsed.get("content")
-
-            # content can be list[str]
-            if isinstance(content, list) and content:
-                text = content[0].strip()
-
-            # or a single string
-            elif isinstance(content, str) and content.strip():
-                text = content.strip()
-
-        if text:
-            highlights.append(text)
-
-        if len(highlights) >= limit:
-            break
-
-    return highlights
-
-
-
-
-def summarize_ami(entries):
-    groups = defaultdict(list)
+    texts = []
 
     for e in entries:
-        parsed = _safe_parse_content(e)
-        domain = parsed.get("domain", {}).get("domain")
-        if not domain:
+        raw = e.get("text")
+        if not raw:
             continue
-        groups[domain].append(e)
 
-    items = []
-    for domain, evts in groups.items():
-        items.append({
-            "category": domain,
-            "count": len(evts),
-            "last_updated": _latest_timestamp(evts),
-            "highlights": _recent_highlights(evts),
-        })
-
-    return {
-        "summary_type": "category_summary",
-        "category_label": "Development Area",
-        "items": sorted(
-            items,
-            key=lambda x: x["last_updated"] or "",
-            reverse=True,
-        ),
-    }
-
-
-def summarize_caretaker(entries):
-    groups = defaultdict(list)
-
-    # Group by subject (person)
-    for e in entries:
-        person = e.get("subject")
-        if person:
-            groups[person].append(e)
-
-    items = []
-
-    for person, evts in groups.items():
-        texts = []
-
-        # -----------------------------
-        # Collect raw human text
-        # -----------------------------
-        for e in evts:
-            raw = e.get("text") or e.get("content")
-            if not isinstance(raw, str):
+        # Case 1: plain text (Ami / Workbench)
+        if isinstance(raw, str):
+            raw = raw.strip()
+            if not raw:
                 continue
 
+            # Try JSON, but DO NOT require it
             try:
                 parsed = json.loads(raw)
-                content = parsed.get("content")
             except Exception:
-                content = raw
-
-            if isinstance(content, list):
-                texts.extend(
-                    _normalize_text(t)
-                    for t in content
-                    if isinstance(t, str) and t.strip()
-                )
-            elif isinstance(content, str) and content.strip():
-                texts.append(_normalize_text(content))
-
-        if not texts:
-            summary = f"{len(evts)} 条医疗记录"
-            bullets = []
-        else:
-            # -----------------------------
-            # Deduplicate text blocks
-            # -----------------------------
-            seen = set()
-            unique = []
-            for t in texts:
-                if t not in seen:
-                    seen.add(t)
-                    unique.append(t)
-
-            # -----------------------------
-            # Split into clauses
-            # -----------------------------
-            clauses = []
-            for t in unique:
-                clauses.extend(_split_into_clauses(t))
-
-            # -----------------------------
-            # Build summary + bullets
-            # -----------------------------
-            summary = clauses[0] if clauses else unique[0][:120]
-
-            bullets = []
-            for c in clauses[1:]:
-                if c not in bullets:
-                    bullets.append(c)
-                if len(bullets) >= 4:
-                    break
-
-        items.append({
-            "category": person,
-            "count": len(evts),
-            "last_updated": _latest_timestamp(evts),
-            "summary": summary,
-            "bullets": bullets,
-        })
-
-    return {
-        "summary_type": "category_summary",
-        "category_label": "Family Member",
-        "items": sorted(
-            items,
-            key=lambda x: x.get("last_updated") or "",
-            reverse=True,
-        ),
-    }
-
-
-
-def summarize_workbench(entries):
-    groups = defaultdict(list)
-
-    for e in entries:
-        parsed = _safe_parse_content(e)
-        domain = parsed.get("domain", {}).get("domain") or "General"
-        groups[domain].append(e)
-
-    items = []
-    for domain, evts in groups.items():
-        items.append({
-            "category": domain,
-            "count": len(evts),
-            "last_updated": _latest_timestamp(evts),
-            "highlights": _recent_highlights(evts),
-        })
-
-    return {
-        "summary_type": "category_summary",
-        "category_label": "Learning Area",
-        "items": sorted(
-            items,
-            key=lambda x: x["last_updated"] or "",
-            reverse=True,
-        ),
-    }
-
-
-
-
-def summarize_steward(entries):
-    groups = defaultdict(list)
-
-    for e in entries:
-        project = e.get("subject")
-        if project:
-            groups[project].append(e)
-
-    items = []
-
-    for project, evts in groups.items():
-        texts = []
-
-        for e in evts:
-            raw = e.get("text") or e.get("content")
-            if not isinstance(raw, str):
+                texts.append(raw)
                 continue
 
-            try:
-                parsed = json.loads(raw)
-                content = parsed.get("content")
-            except Exception:
-                content = raw
+            # JSON parsed successfully
+            content = parsed.get("content")
 
             if isinstance(content, list):
                 texts.extend(
@@ -266,25 +54,122 @@ def summarize_steward(entries):
                 )
             elif isinstance(content, str) and content.strip():
                 texts.append(content.strip())
+            else:
+                # JSON without usable nested content → keep original
+                texts.append(raw)
 
-        if texts:
-            summary = _extract_summary(texts[0], max_len=320, max_sentences=3)
-            bullets = _extract_bullets(texts[0], limit=4)
+    return texts
+
+
+
+
+def summarize_with_llm(category, texts, llm_call_fn):
+    """
+    Generic summarization for all agents.
+
+    IMPORTANT:
+    - LLM returns FINAL display-ready Markdown
+    - We do NOT parse the result
+    """
+
+    user_content = "\n\n".join(texts)
+
+    prompt = f"""
+You are organizing user-recorded notes.
+
+TASK:
+- Produce a concise, readable summary for the category.
+- Use short paragraphs and bullet points where helpful.
+- Keep all content coherent and about the same topic.
+- Use ONLY the provided content.
+- Do NOT add new facts.
+- Do NOT infer, advise, or interpret.
+
+OUTPUT:
+- Write the FINAL result in Markdown.
+- This output will be rendered directly to the user.
+
+CONTENT:
+{user_content}
+"""
+
+    response = llm_call_fn(prompt)
+
+    return response.strip()
+
+
+def group_entries(agent_name, entries):
+    groups = defaultdict(list)
+
+    for e in entries:
+        key = None
+
+        # 1️⃣ Subject-based grouping (Caretaker, Steward)
+        if e.get("subject"):
+            key = e.get("subject")
+
+        # 2️⃣ JSON-embedded domain (Ami, Workbench)
         else:
-            summary = f"{len(evts)} updates recorded"
-            bullets = []
+            raw = e.get("text")   # 🔴 FIX
+            if isinstance(raw, str):
+                try:
+                    parsed = json.loads(raw)
+                    key = parsed.get("domain", {}).get("domain")
+                except Exception:
+                    pass
+
+        if key:
+            groups[key].append(e)
+
+    return groups
+
+
+
+
+
+def generate_category_summary(agent_name, entries, llm_call_fn=None):
+    """
+    Generic category summary for all agents.
+
+    - Grouping is deterministic
+    - Summarization is generative
+    - LLM is used ONLY when llm_call_fn is provided (Regenerate)
+    """
+
+    groups = group_entries(agent_name, entries)
+    print("DEBUG groups:", {k: len(v) for k, v in groups.items()})
+    items = []
+
+    for category, evts in groups.items():
+        texts = _collect_raw_text(evts)
+        print(f"DEBUG category={category} texts_count={len(texts)}")
+        print("DEBUG sample texts:", texts[:2])
+
+        if llm_call_fn and texts:
+            print("DEBUG calling LLM")
+            content = summarize_with_llm(category, texts, llm_call_fn)
+            print("DEBUG LLM returned:", repr(content[:200]))
+        else:
+            print("DEBUG skipping LLM")
+            content = ""
 
         items.append({
-            "category": project,
+            "category": category,
             "count": len(evts),
             "last_updated": _latest_timestamp(evts),
-            "summary": summary,
-            "bullets": bullets,
+            "content": content,  # 👈 SINGLE FIELD, Markdown
         })
+
+    label = {
+        "ami": "Development Area",
+        "workbench": "Learning Area",
+        "steward": "Project",
+        "caretaker": "Family Member",
+    }.get(agent_name, "Category")
 
     return {
         "summary_type": "category_summary",
-        "category_label": "Project",
+        "category_label": label,
         "items": sorted(
             items,
             key=lambda x: x.get("last_updated") or "",
@@ -293,92 +178,44 @@ def summarize_steward(entries):
     }
 
 
-
-
-def generate_category_summary(agent_name, entries):
-    if agent_name == "ami":
-        return summarize_ami(entries)
-    if agent_name == "caretaker":
-        return summarize_caretaker(entries)
-    if agent_name == "workbench":
-        return summarize_workbench(entries)
-    if agent_name == "steward":
-        return summarize_steward(entries)
-
-    raise ValueError(f"Unsupported agent for category summary: {agent_name}")
-
-
-
-import re
-
-def _extract_summary(text: str, max_len: int = 320, max_sentences: int = 3) -> str:
+def extract_text_lines(entry: dict) -> list[str]:
     """
-    Deterministically extract up to N sentences without cutting words.
+    Normalize entry content into a list of human-written text lines.
+    Works for:
+    - pure text (Ami / Workbench)
+    - JSON content with list (Caretaker / Steward)
     """
-    if not text:
-        return ""
-
-    text = " ".join(text.split())
-
-    # Split into sentences
-    sentences = re.split(r"(?<=[.。!?])\s+", text)
-
-    summary_parts = []
-    total_len = 0
-
-    for s in sentences:
-        s = s.strip()
-        if not s:
-            continue
-
-        if total_len + len(s) > max_len:
-            break
-
-        summary_parts.append(s)
-        total_len += len(s)
-
-        if len(summary_parts) >= max_sentences:
-            break
-
-    return " ".join(summary_parts)
-
-
-def _extract_bullets(text: str, limit: int = 4) -> list[str]:
-    """
-    Extract bullet-like phrases deterministically.
-    """
-    if not text:
+    raw = entry.get("content")
+    if not raw:
         return []
 
-    text = " ".join(text.split())
+    # Case 1: plain string (Ami / Workbench)
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if not raw:
+            return []
 
-    # Split on double spaces, numbers, or separators
-    parts = re.split(r"\s{2,}|\d+\.\s+| - | • | \u2022 ", text)
+        # Try JSON, but fall back safely
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            return [raw]
 
-    bullets = []
-    for p in parts:
-        p = p.strip()
-        if len(p) < 20:
-            continue
-        if p.lower().startswith("overall outcome"):
-            continue
-        bullets.append(p)
+        # Parsed JSON may contain nested content
+        content = parsed.get("content")
+        if isinstance(content, list):
+            return [c.strip() for c in content if isinstance(c, str) and c.strip()]
+        if isinstance(content, str) and content.strip():
+            return [content.strip()]
 
-        if len(bullets) >= limit:
-            break
+        return []
 
-    return bullets
+    # Case 2: already dict (rare but safe)
+    if isinstance(raw, dict):
+        content = raw.get("content")
+        if isinstance(content, list):
+            return [c.strip() for c in content if isinstance(c, str) and c.strip()]
+        if isinstance(content, str) and content.strip():
+            return [content.strip()]
 
-
-
-
-def _normalize_text(t: str) -> str:
-    return " ".join(t.split())
-
-def _split_into_clauses(text: str) -> list[str]:
-    """
-    Split text into readable clauses without semantic assumptions.
-    Works for Chinese and English.
-    """
-    parts = re.split(r"[。.!?\n]+", text)
-    return [p.strip() for p in parts if len(p.strip()) >= 8]
+    return []

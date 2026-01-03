@@ -489,92 +489,73 @@ async function loadCategorySummary() {
   const title = document.getElementById("category-summary-title");
   const list = document.getElementById("category-summary-list");
 
-  // Reset UI
-  panel.classList.add("hidden");
-  title.textContent = "";
+  // Always show panel
+  panel.classList.remove("hidden");
   list.innerHTML = "";
+  title.textContent = "Summary";
 
   try {
-    // --------------------------------------------
-    // Fetch summary (read-only)
-    // --------------------------------------------
     const res = await fetch(
-        `/api/intelligence/${agent}/reports?type=category_summary`
+      `/api/intelligence/${agent}/reports?type=category_summary`
     );
     const data = await res.json();
 
+    // ----------------------------
+    // Empty state: no summary yet
+    // ----------------------------
     if (!data.reports || data.reports.length === 0) {
+      list.innerHTML = `
+        <p class="muted">
+          No summary yet. Click <strong>Regenerate</strong> to create one.
+        </p>
+      `;
       return;
     }
 
-    // --------------------------------------------
-    // Normalize content
-    // --------------------------------------------
-    let summary = data.reports[0].content;
+    const report = data.reports[0];
+    const summary = report.content || {};
+    const items = summary.items || [];
 
-    if (typeof summary === "string") {
-      try {
-        summary = JSON.parse(summary);
-      } catch (e) {
-        console.error("Failed to parse category summary JSON", summary);
-        return;
-      }
+    // Use backend-provided label if available
+    if (summary.category_label) {
+      title.textContent = `Summary by ${summary.category_label}`;
     }
 
-    if (!summary || !summary.items) return;
+    if (!items.length) {
+      list.innerHTML = `
+        <p class="muted">
+          No summary yet. Click <strong>Regenerate</strong> to create one.
+        </p>
+      `;
+      return;
+    }
 
-    let items = Array.isArray(summary.items)
-        ? summary.items
-        : Object.values(summary.items);
-
-    if (!items.length) return;
-
-    // ------------------------------------------------
-    // 4️⃣ Render (panel-level)
-    // ------------------------------------------------
-    title.textContent = `Summary by ${summary.category_label || "Project"}`;
-
-    // IMPORTANT: unhide panel BEFORE rendering rows
-    panel.classList.remove("hidden");
-
-    // Clear again just in case
-    list.innerHTML = "";
-
+    // ----------------------------
+    // Render items (generic)
+    // ----------------------------
     items.forEach(item => {
       const div = document.createElement("div");
       div.className = "summary-row";
-
-      const bulletsHtml = (item.bullets || [])
-          .map(b => `<li>${escapeHtml(b)}</li>`)
-          .join("");
 
       div.innerHTML = `
         <div class="summary-project">
           ${escapeHtml(item.category)}
         </div>
         <div class="summary-preview">
-          <div class="summary-sentence">
-            ${escapeHtml(item.summary)}
-          </div>
-    
-          ${bulletsHtml
-              ? `<ul class="summary-bullets">${bulletsHtml}</ul>`
-              : ""
-          }
+          ${marked.parse(item.content || "")}
         </div>
       `;
 
       list.appendChild(div);
     });
 
-
   } catch (err) {
     console.error("Failed to load category summary", err);
-    panel.classList.add("hidden");
+    list.innerHTML = `
+      <p class="muted">Failed to load summary.</p>
+    `;
   }
 }
-
-
 
 
 
@@ -588,11 +569,11 @@ async function regenerateCategorySummary() {
 
   try {
     await fetch(
-        `/api/intelligence/${agent}/category_summary`,
-        { method: "POST" }
+      `/api/intelligence/${agent}/category_summary`,
+      { method: "POST" }
     );
 
-    await loadCategorySummary();  // reload after regenerate
+    await loadCategorySummary(); // reload after regenerate
   } catch (err) {
     console.error("Failed to regenerate summary", err);
     alert("Failed to regenerate summary.");
@@ -601,7 +582,6 @@ async function regenerateCategorySummary() {
     btn.textContent = "Regenerate";
   }
 }
-
 
 
 

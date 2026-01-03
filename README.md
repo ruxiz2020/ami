@@ -146,6 +146,8 @@ Example:
 
 ```bash
 curl -X POST http://127.0.0.1:5000/api/intelligence/ami/weekly_reflection
+
+curl -X POST http://127.0.0.1:5000/api/intelligence/caretaker/category_summary
 ```
 
 Reports are stored locally and can be retrieved via:

@@ -1,9 +1,6 @@
 # intelligence/engine.py
 
-from datetime import datetime
-from intelligence.storage import save_report
 from intelligence.templates import load_prompt_template
-from intelligence.category_summary import generate_category_summary
 
 
 def generate_report(
@@ -63,8 +60,6 @@ def generate_report_content(
     policy,
     llm_call_fn,
 ):
-    if report_type == "category_summary":
-        return generate_category_summary(agent_name, entries)
 
     template = load_prompt_template(agent_name, report_type)
     def _entry_to_text(e: dict) -> str:
