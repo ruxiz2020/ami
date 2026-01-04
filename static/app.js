@@ -1,21 +1,4 @@
-// ==================================================
-// Save Protocol Tokens
-// ==================================================
 
-const ASK_TO_SAVE = "[[ASK_TO_SAVE]]";
-const AUTO_SAVED = "[[AUTO_SAVED]]";
-
-function stripToken(text, token) {
-  return text.replace(token, "").trim();
-}
-
-
-
-// ==================================================
-// State
-// ==================================================
-
-let pendingObservation = null;
 
 
 const AGENT_UI = {
@@ -44,16 +27,43 @@ const AGENT_UI = {
 // ==================================================
 
 async function loadTimeline() {
-  hideSaveActions();
-
   try {
     const agent = getActiveAgent();
+    const timeline = document.getElementById("timeline");
+
+    // Clear once
+    timeline.innerHTML = "";
+
+    // -------------------------
+    // 1. Load draft
+    // -------------------------
+    const draftRes = await fetch("/api/draft");
+    const draftData = await draftRes.json();
+
+    if (draftData.content && draftData.content.length > 0) {
+      const draftDiv = document.createElement("div");
+      draftDiv.className = "timeline-item draft-item";
+
+      draftDiv.innerHTML = `
+        <div class="timeline-domain">Draft (not saved)</div>
+        <textarea
+          class="edit-textarea"
+          oninput="updateDraft(this.value)"
+        >${draftData.content.join("\n")}</textarea>
+        <div class="edit-actions">
+          <button onclick="saveDraft()">Save draft</button>
+        </div>
+      `;
+
+      timeline.appendChild(draftDiv);
+    }
+
+    // -------------------------
+    // 2. Load saved entries
+    // -------------------------
     const res = await fetch(`/api/observations?agent=${encodeURIComponent(agent)}`);
     const rawData = await res.json();
     const data = (rawData || []).map(normalizeEntry);
-
-    const timeline = document.getElementById("timeline");
-    timeline.innerHTML = "";
 
     const latest = data.slice(0, 5);
 
@@ -77,6 +87,7 @@ async function loadTimeline() {
     console.error("Failed to load timeline", err);
   }
 }
+
 
 
 // ==================================================
@@ -132,9 +143,6 @@ async function sendMessage() {
   appendUserMessage(text);
   input.value = "";
 
-  // Optimistically assume no pending save unless agent asks
-  pendingObservation = null;
-
   const placeholder = appendAmiMessage("…", true);
 
   try {
@@ -149,26 +157,6 @@ async function sendMessage() {
     const data = await res.json();
     let reply = data.reply || "";
 
-    // === ASK TO SAVE (manual confirmation) ===
-    if (reply.includes(ASK_TO_SAVE)) {
-      pendingObservation = text;
-      showSaveActions();
-      reply = stripToken(reply, ASK_TO_SAVE);
-    }
-
-    // === AUTO SAVED (backend already saved) ===
-    else if (reply.includes(AUTO_SAVED)) {
-      pendingObservation = null;
-      hideSaveActions();
-      reply = stripToken(reply, AUTO_SAVED);
-      loadTimeline();
-    }
-
-    // === NO SAVE ===
-    else {
-      pendingObservation = null;
-      hideSaveActions();
-    }
 
     placeholder.querySelector(".ami-text").textContent = reply;
 
@@ -179,49 +167,6 @@ async function sendMessage() {
   }
 }
 
-
-// ==================================================
-// Save controls
-// ==================================================
-
-function showSaveActions() {
-  const actions = document.getElementById("save-actions");
-  if (actions) actions.style.display = "flex";
-}
-
-function hideSaveActions() {
-  const actions = document.getElementById("save-actions");
-  if (actions) actions.style.display = "none";
-}
-
-async function confirmSave() {
-  if (!pendingObservation) return;
-
-  try {
-    await fetch("/api/observations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        getAgentPayload({ text: pendingObservation })
-      ),
-    });
-
-    appendAmiMessage("Noted.");
-    pendingObservation = null;
-    hideSaveActions();
-    loadTimeline();
-
-  } catch (err) {
-    console.error("Save failed", err);
-    appendAmiMessage("I couldn’t save that just now.");
-  }
-}
-
-
-function dismissSave() {
-  pendingObservation = null;
-  hideSaveActions();
-}
 
 // ==================================================
 // Timeline inline editing
@@ -266,9 +211,9 @@ async function saveEdit(id) {
   await fetch(`/api/observations/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(
-      getAgentPayload({ text: newText })
-    ),
+    body: JSON.stringify({
+      content: [newText]
+    }),
   });
 
   loadTimeline();
@@ -345,8 +290,6 @@ async function switchAgent(agent) {
   updateAgentUI(agent);
 
   document.getElementById("chat-log").innerHTML = "";
-  pendingObservation = null;
-  hideSaveActions();
 
   loadTimeline();
   loadReflections();
@@ -472,13 +415,44 @@ function getAgentPayload(extra = {}) {
 
 
 function normalizeEntry(raw) {
+  let parsed = null;
+  let text = "";
+
+  try {
+    parsed = typeof raw.content === "string"
+      ? JSON.parse(raw.content)
+      : raw.content;
+  } catch (e) {
+    parsed = null;
+  }
+
+  // 1️⃣ New schema: content is an array
+  if (parsed && Array.isArray(parsed.content)) {
+    text = parsed.content.join("\n");
+  }
+  // 2️⃣ Transitional schema: content is a string
+  else if (parsed && typeof parsed.content === "string") {
+    text = parsed.content;
+  }
+  // 3️⃣ Legacy schema: raw.text exists
+  else if (raw.text) {
+    text = raw.text;
+  }
+  // 4️⃣ Absolute fallback: stringify parsed
+  else if (parsed) {
+    text = JSON.stringify(parsed, null, 2);
+  }
+
   return {
     id: raw.id ?? raw.uuid,
-    text: raw.text ?? raw.content ?? "",
-    date: raw.date ?? raw.created_at ?? raw.updated_at ?? "",
-    domain: raw.domain ?? raw.agent ?? raw.topic ?? "",
+    text,
+    date: raw.created_at ?? raw.updated_at ?? "",
+    domain: parsed?.domain?.domain ?? raw.agent ?? "",
   };
 }
+
+
+
 
 
 
@@ -584,6 +558,36 @@ async function regenerateCategorySummary() {
 }
 
 
+function saveDraft() {
+  fetch("/api/draft/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" }
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === "saved") {
+        alert("Saved");
+        loadTimeline(); // refresh timeline if you already have this
+      } else if (data.status === "incomplete") {
+        alert(data.message);
+      } else if (data.error) {
+        alert(data.error);
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      alert("Failed to save");
+    });
+}
+
+
+function updateDraft(text) {
+  fetch("/api/draft", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+}
 
 
 loadActiveAgent().then(() => {

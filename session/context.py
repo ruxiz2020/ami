@@ -19,3 +19,8 @@ class SessionContext:
 
         # Optional control flag
         self.is_question_turn = False
+
+        self.last_user_content = None
+        self.pending_save_confirmation = False
+
+        self.pending_record_text = None

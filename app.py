@@ -4,6 +4,7 @@ import logging
 import os
 import uuid
 import json
+import sqlite3
 from pathlib import Path
 from google import genai
 from datetime import datetime, timedelta
@@ -34,7 +35,9 @@ from sync.local_spreadsheet_service import sync_rows_to_csv
 # Agent selection
 # -------------------------------------------------
 
-ACTIVE_AGENT = "ami"
+# ACTIVE_AGENT = "ami"
+DEFAULT_AGENT = "ami"
+
 DEFAULT_AGENT = "ami"
 
 def get_agent():
@@ -42,9 +45,10 @@ def get_agent():
     return (
         data.get("agent")
         or request.args.get("agent")
-        or ACTIVE_AGENT
+        or session.get("active_agent")
         or DEFAULT_AGENT
     )
+
 
 
 # -------------------------------------------------
@@ -188,14 +192,37 @@ def call_llm(system_prompt, developer_prompt, context, user_message):
     return response.text.strip()
 
 
-def get_session_context():
+# def get_session_context(agent: str):
+#     if "session_id" not in session:
+#         session["session_id"] = str(uuid.uuid4())
+#
+#     sid = session["session_id"]
+#
+#     # Key by BOTH sid and agent to avoid cross-agent contamination
+#     key = f"{sid}:{agent}"
+#     if key not in SESSION_CONTEXTS:
+#         SESSION_CONTEXTS[key] = SessionContext()
+#
+#     return SESSION_CONTEXTS[key]
+
+
+def get_session_context(agent):
     if "session_id" not in session:
         session["session_id"] = str(uuid.uuid4())
 
     sid = session["session_id"]
-    if sid not in SESSION_CONTEXTS:
-        SESSION_CONTEXTS[sid] = SessionContext()
-    return SESSION_CONTEXTS[sid]
+    key = f"{sid}:{agent}"
+
+    print("SESSION_CONTEXT", {
+        "sid": sid,
+        "agent": agent,
+        "key": key
+    })
+
+    if key not in SESSION_CONTEXTS:
+        SESSION_CONTEXTS[key] = SessionContext()
+
+    return SESSION_CONTEXTS[key]
 
 
 def clear_context_after_save(ctx):
@@ -203,8 +230,9 @@ def clear_context_after_save(ctx):
     ctx.active_person = None
     ctx.active_project = None
     ctx.pending_subject = None
-    ctx.is_question_turn = False
     ctx.collected_text = []
+    ctx.pending_record_text = None   # ← ADD THIS
+    ctx.pending_save_confirmation = False
 
 
 def user_wants_to_save(text: str) -> bool:
@@ -264,6 +292,28 @@ def build_context(agent):
     return prefix + "\n" + "\n".join(lines)
 
 
+def looks_like_record(text: str) -> bool:
+    return (
+        len(text) >= 10
+        and not text.endswith("?")
+    )
+
+
+def user_confirms(text: str) -> bool:
+    t = text.strip().lower()
+    return t in {
+        # English
+        "yes", "y", "ok", "okay", "sure", "confirm", "save",
+
+        # Chinese
+        "好", "好的", "是", "是的", "可以", "保存",
+    }
+
+
+def user_confirms(text: str) -> bool:
+    return text.strip() in {"好", "好的", "是", "是的", "可以", "保存"}
+
+
 # -------------------------------------------------
 # Routes
 # -------------------------------------------------
@@ -292,8 +342,12 @@ def add_observation_api():
     if not text:
         return jsonify({"error": "Empty entry"}), 400
 
-    ctx = get_session_context()
+    ctx = get_session_context(agent)
 
+    # Content first
+    ctx.collected_text = [text]
+
+    # Metadata resolution
     resolve_subjects_if_any(agent, text, ctx)
 
     policy = cfg.get("subject_policy")
@@ -302,8 +356,6 @@ def add_observation_api():
         if not ok:
             return jsonify({"status": "need_clarification", "message": msg}), 400
 
-    # store as single-message record
-    ctx.collected_text = [text]
     content = build_entry_payload(ctx)
     subject = build_subject_for_entry(ctx)
 
@@ -318,6 +370,138 @@ def add_observation_api():
     return jsonify({"status": "saved"})
 
 
+
+
+
+def _entries_db_path():
+    # same DB as agents.common.storage is using (based on your init log)
+    return str(Path(__file__).resolve().parent / "agents" / "common" / "data" / "entries.db")
+
+
+@app.route("/api/observations/<int:entry_id>", methods=["PUT"])
+def update_observation(entry_id: int):
+    agent = get_agent()
+    if agent not in AGENTS:
+        return jsonify({"error": "Unknown agent"}), 400
+
+    data = request.get_json(silent=True) or {}
+
+    # Accept either {"content": ["..."]} or {"text": "..."} from client
+    new_content_list = None
+    if isinstance(data.get("content"), list):
+        new_content_list = [str(x) for x in data["content"]]
+    elif isinstance(data.get("text"), str) and data["text"].strip():
+        new_content_list = [data["text"].strip()]
+
+    if not new_content_list:
+        return jsonify({"error": "Missing content/text"}), 400
+
+    db_path = _entries_db_path()
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+
+        # Optional: prevent cross-agent edits (recommended)
+        if row["agent"] != agent:
+            return jsonify({"error": "Entry belongs to a different agent"}), 403
+
+        # Parse existing JSON payload, update only the text content
+        try:
+            payload = json.loads(row["content"]) if row["content"] else {}
+        except Exception:
+            payload = {}
+
+        payload["content"] = new_content_list
+        payload["updated_at"] = datetime.utcnow().isoformat()
+
+        new_payload_str = json.dumps(payload, ensure_ascii=False)
+
+        conn.execute(
+            "UPDATE entries SET content = ?, updated_at = ? WHERE id = ?",
+            (new_payload_str, datetime.utcnow().isoformat(), entry_id),
+        )
+        conn.commit()
+
+        return jsonify({"status": "updated"})
+    finally:
+        conn.close()
+
+
+
+@app.route("/api/draft/save", methods=["POST"])
+def save_draft():
+    agent = get_agent()
+    cfg = AGENTS.get(agent)
+    if not cfg:
+        return jsonify({"error": "Invalid agent"}), 400
+
+    ctx = get_session_context(agent)
+    policy = cfg.get("subject_policy")
+
+    # -------------------------
+    # 1. Validate required fields
+    # -------------------------
+    if policy:
+        ok, msg = enforce_subjects(policy, ctx)
+        if not ok:
+            return jsonify({
+                "status": "incomplete",
+                "message": msg or "Some required information is missing. Please complete it in the chat."
+            }), 400
+
+    if not ctx.collected_text:
+        return jsonify({
+            "status": "incomplete",
+            "message": "No content to save."
+        }), 400
+
+    # -------------------------
+    # 2. Save entry
+    # -------------------------
+    content = build_entry_payload(ctx)
+    subject = build_subject_for_entry(ctx)
+
+    common_add_entry(
+        agent=agent,
+        type=cfg["entry_type"],
+        subject=subject,
+        content=content,
+    )
+
+    clear_context_after_save(ctx)
+
+    return jsonify({"status": "saved"})
+
+
+@app.route("/api/draft", methods=["PUT"])
+def update_draft():
+    agent = get_agent()
+    ctx = get_session_context(agent)
+
+    data = request.get_json() or {}
+    text = data.get("text", "").strip()
+
+    if not text:
+        ctx.collected_text = []
+    else:
+        ctx.collected_text = [text]
+
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/draft", methods=["GET"])
+def get_draft():
+    agent = get_agent()
+    ctx = get_session_context(agent)
+
+    return jsonify({
+        "content": ctx.collected_text or [],
+    })
+
+
 @app.route("/api/chat", methods=["POST"])
 def chat():
     agent = get_agent()
@@ -329,51 +513,47 @@ def chat():
     if not user_message:
         return jsonify({"reply": ""})
 
-    ctx = get_session_context()
+    ctx = get_session_context(agent)
+    policy = cfg.get("subject_policy")
 
-    # Resolve subjects first (may consume this message as metadata)
+    # -------------------------------------------------
+    # 0) Detect record content FIRST (draft-only)
+    # -------------------------------------------------
+    def looks_like_record(text: str) -> bool:
+        return len(text) >= 10 and not text.endswith("?")
+
+    if looks_like_record(user_message):
+        ctx.collected_text.append(user_message)
+
+        return jsonify({
+            "reply": "Got it. I've added this to your draft. You can review and save it from the timeline."
+        })
+
+    # -------------------------------------------------
+    # 1) Subject resolution (ONLY for non-record messages)
+    # -------------------------------------------------
     previous_pending = ctx.pending_subject
     resolve_subjects_if_any(agent_name=agent, text=user_message, ctx=ctx)
 
-    policy = cfg.get("subject_policy")
-
-    # If message was used to answer a clarification question: stop
     if previous_pending is not None and ctx.pending_subject is None:
         if policy:
             ok, msg = enforce_subjects(policy, ctx)
             if not ok:
                 return jsonify({"reply": msg})
-        return jsonify({"reply": "好的，已了解。请继续。"})
 
-    # Enforce required subjects
+        return jsonify({"reply": "Okay, I understand. Please continue."})
+
+    # -------------------------------------------------
+    # 2) Enforce required subjects
+    # -------------------------------------------------
     if policy:
         ok, msg = enforce_subjects(policy, ctx)
         if not ok:
             return jsonify({"reply": msg})
 
-    # Save intent: save what has been collected so far
-    if user_wants_to_save(user_message):
-        if not ctx.collected_text:
-            return jsonify({"reply": "请先补充具体记录内容，然后再保存。"})
-
-        content = build_entry_payload(ctx)
-        subject = build_subject_for_entry(ctx)
-
-        common_add_entry(
-            agent=agent,
-            type=cfg["entry_type"],
-            subject=subject,
-            content=content,
-        )
-
-        clear_context_after_save(ctx)
-        return jsonify({"reply": "已保存该记录。"})
-
-    # Collect real content
-    if not is_control_or_subject_answer(ctx, user_message):
-        ctx.collected_text.append(user_message)
-
-    # Normal chat response
+    # -------------------------------------------------
+    # 3) Normal chat
+    # -------------------------------------------------
     reply = call_llm(
         system_prompt=cfg["system_prompt"](),
         developer_prompt=cfg["developer_prompt"](),
@@ -381,20 +561,11 @@ def chat():
         user_message=user_message,
     )
 
-    # Optional AUTO_SAVED behavior (only if content exists)
-    if "[[AUTO_SAVED]]" in reply and ctx.collected_text:
-        content = build_entry_payload(ctx)
-        subject = build_subject_for_entry(ctx)
-
-        common_add_entry(
-            agent=agent,
-            type=cfg["entry_type"],
-            subject=subject,
-            content=content,
-        )
-        clear_context_after_save(ctx)
-
     return jsonify({"reply": reply})
+
+
+
+
 
 
 @app.route("/api/intelligence/<agent>/category_summary", methods=["POST"])
@@ -486,17 +657,17 @@ def sync_google():
 
 @app.route("/api/agent", methods=["GET"])
 def get_active_agent():
-    return jsonify({"agent": ACTIVE_AGENT})
+    return jsonify({"agent": session.get("active_agent", DEFAULT_AGENT)})
 
 
 @app.route("/api/agent", methods=["POST"])
 def set_active_agent():
-    global ACTIVE_AGENT
     agent = (request.json or {}).get("agent")
     if agent not in AGENTS:
         return jsonify({"error": "Invalid agent"}), 400
-    ACTIVE_AGENT = agent
+    session["active_agent"] = agent
     return jsonify({"status": "ok", "agent": agent})
+
 
 def call_llm_simple(user_prompt: str) -> str:
     """
@@ -509,7 +680,7 @@ def call_llm_simple(user_prompt: str) -> str:
         config={
             "temperature": 0.2,
             "top_p": 0.9,
-            "max_output_tokens": 800,
+            "max_output_tokens": 1200,
         },
     )
     return (response.text or "").strip()

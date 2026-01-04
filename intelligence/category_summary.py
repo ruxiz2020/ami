@@ -75,15 +75,25 @@ def summarize_with_llm(category, texts, llm_call_fn):
     user_content = "\n\n".join(texts)
 
     prompt = f"""
-You are organizing user-recorded notes.
+You are summarizing a set of personal notes under the category "{category}".
+
+Write a detailed, human-readable summary that includes:
+
+1. A brief overview of what this category represents.
+2. Key facts or events mentioned (include dates, amounts, or milestones if present).
+3. Any patterns, changes, or progression over time.
+4. If the entries involve a child or family member, reflect developmental or emotional context.
+5. Use complete sentences and 2–4 short paragraphs.
+
 
 TASK:
 - Produce a concise, readable summary for the category.
 - Use short paragraphs and bullet points where helpful.
 - Keep all content coherent and about the same topic.
 - Use ONLY the provided content.
-- Do NOT add new facts.
-- Do NOT infer, advise, or interpret.
+- Do NOT be overly brief.
+- Do NOT just restate one sentence.
+- This summary is meant for long-term reflection.
 
 OUTPUT:
 - Write the FINAL result in Markdown.

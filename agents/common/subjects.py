@@ -32,7 +32,7 @@ def resolve_subjects_if_any(agent_name: str, text: str, ctx):
 
     if pending == "domain":
         ctx.active_domain = DomainSubject(
-            domain="unspecified",
+            domain=text.strip(),
             subdomain=text.strip(),
             confidence=1.0,
             source="explicit",

@@ -495,3 +495,23 @@ main {
 .summary-toggle:hover {
   text-decoration: underline;
 }
+
+
+.draft-item {
+  border: 2px dashed #7aa;
+  background: #f3fbfa;
+}
+
+.draft-item .timeline-domain {
+  font-weight: bold;
+}
+
+
+.chat-actions {
+  margin-top: 8px;
+  text-align: right;
+}
+
+.chat-actions button {
+  font-size: 0.9rem;
+}
