@@ -60,14 +60,19 @@ class GoogleSheetsAdapter:
         ).execute()
 
     def format_row(self, row: dict):
-        """
-        Default formatter.
-        Agents must align their sheet columns with this order.
-        """
-        return [
-            self._normalize_cell(row.get(col))
-            for col in EXPECTED_COLUMNS
-        ]
+        values = []
+
+        for col in EXPECTED_COLUMNS:
+            if col == "text":
+                # Render human-readable text from structured content
+                value = "\n".join(row.get("content", []))
+            else:
+                value = row.get(col)
+    
+            values.append(self._normalize_cell(value))
+
+        return values
+
 
 
     def _normalize_cell(self, value):

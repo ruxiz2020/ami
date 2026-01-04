@@ -18,47 +18,25 @@ def _collect_raw_text(entries):
     """
     Normalize all entries into a list of human-written text strings.
 
-    Rules:
-    - Plain text content is ALWAYS valid (Ami / Workbench)
-    - JSON content with nested list is unpacked (Caretaker / Steward)
-    - Never drop raw text just because JSON parsing fails
+    Storage contract:
+    - entry["content"] is ALWAYS list[str]
+    - Never parse JSON here
     """
     texts = []
 
     for e in entries:
-        raw = e.get("text")
-        if not raw:
+        content_list = e.get("content", [])
+        if not isinstance(content_list, list):
             continue
 
-        # Case 1: plain text (Ami / Workbench)
-        if isinstance(raw, str):
-            raw = raw.strip()
-            if not raw:
-                continue
-
-            # Try JSON, but DO NOT require it
-            try:
-                parsed = json.loads(raw)
-            except Exception:
-                texts.append(raw)
-                continue
-
-            # JSON parsed successfully
-            content = parsed.get("content")
-
-            if isinstance(content, list):
-                texts.extend(
-                    line.strip()
-                    for line in content
-                    if isinstance(line, str) and line.strip()
-                )
-            elif isinstance(content, str) and content.strip():
-                texts.append(content.strip())
-            else:
-                # JSON without usable nested content → keep original
-                texts.append(raw)
+        for line in content_list:
+            if isinstance(line, str):
+                line = line.strip()
+                if line:
+                    texts.append(line)
 
     return texts
+
 
 
 
@@ -77,26 +55,39 @@ def summarize_with_llm(category, texts, llm_call_fn):
     prompt = f"""
 You are summarizing a set of personal notes under the category "{category}".
 
-Write a detailed, human-readable summary that includes:
+Your goal is to create a clear, reflective summary that is useful for long-term review.
 
-1. A brief overview of what this category represents.
-2. Key facts or events mentioned (include dates, amounts, or milestones if present).
-3. Any patterns, changes, or progression over time.
-4. If the entries involve a child or family member, reflect developmental or emotional context.
-5. Use complete sentences and 2–4 short paragraphs.
+STRUCTURE (REQUIRED):
 
+1. **Overview (1 short paragraph)**
+   - Explain what this category represents in the context of the notes.
+   - Keep it high-level and human-readable.
 
-TASK:
-- Produce a concise, readable summary for the category.
-- Use short paragraphs and bullet points where helpful.
-- Keep all content coherent and about the same topic.
+2. **Key Points (REQUIRED — use bullet points)**
+   - Use bullet points to list important facts, events, or observations.
+   - Include dates, amounts, milestones, or concrete details when present.
+   - Each bullet should represent a distinct point (do not merge everything into one).
+
+3. **Patterns or Progression (1 short paragraph OR bullet list)**
+   - Describe any trends, changes over time, or repeated themes.
+   - If helpful, you may use bullet points here as well.
+
+4. **Contextual Reflection (optional but encouraged)**
+   - If the notes involve a child or family member, briefly reflect on developmental,
+     emotional, or situational context.
+   - Keep this grounded in the notes; do not speculate beyond the content.
+
+RULES:
 - Use ONLY the provided content.
+- Do NOT invent facts.
 - Do NOT be overly brief.
-- Do NOT just restate one sentence.
-- This summary is meant for long-term reflection.
+- Do NOT simply restate a single sentence from the notes.
+- Keep everything focused on this category only.
 
-OUTPUT:
-- Write the FINAL result in Markdown.
+OUTPUT FORMAT:
+- Write the final result in **Markdown**.
+- Use **bullet points** under “Key Points” (this is mandatory).
+- Use short paragraphs elsewhere.
 - This output will be rendered directly to the user.
 
 CONTENT:
@@ -188,44 +179,3 @@ def generate_category_summary(agent_name, entries, llm_call_fn=None):
     }
 
 
-def extract_text_lines(entry: dict) -> list[str]:
-    """
-    Normalize entry content into a list of human-written text lines.
-    Works for:
-    - pure text (Ami / Workbench)
-    - JSON content with list (Caretaker / Steward)
-    """
-    raw = entry.get("content")
-    if not raw:
-        return []
-
-    # Case 1: plain string (Ami / Workbench)
-    if isinstance(raw, str):
-        raw = raw.strip()
-        if not raw:
-            return []
-
-        # Try JSON, but fall back safely
-        try:
-            parsed = json.loads(raw)
-        except Exception:
-            return [raw]
-
-        # Parsed JSON may contain nested content
-        content = parsed.get("content")
-        if isinstance(content, list):
-            return [c.strip() for c in content if isinstance(c, str) and c.strip()]
-        if isinstance(content, str) and content.strip():
-            return [content.strip()]
-
-        return []
-
-    # Case 2: already dict (rare but safe)
-    if isinstance(raw, dict):
-        content = raw.get("content")
-        if isinstance(content, list):
-            return [c.strip() for c in content if isinstance(c, str) and c.strip()]
-        if isinstance(content, str) and content.strip():
-            return [content.strip()]
-
-    return []

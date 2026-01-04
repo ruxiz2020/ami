@@ -159,6 +159,7 @@ async function sendMessage() {
 
 
     placeholder.querySelector(".ami-text").textContent = reply;
+    loadTimeline();
 
   } catch (err) {
     console.error("Chat failed", err);
@@ -586,8 +587,11 @@ function updateDraft(text) {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text })
+  }).then(() => {
+    loadTimeline();   // keep preview in sync
   });
 }
+
 
 
 loadActiveAgent().then(() => {

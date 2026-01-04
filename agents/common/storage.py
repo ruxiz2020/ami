@@ -52,6 +52,7 @@ def add_entry(agent, content, type="note", subject=None, tags=None):
     now = datetime.utcnow().isoformat()
     tags_json = json.dumps(tags) if tags else None
 
+    serialized = _serialize_content(content)
     cur.execute("""
         INSERT INTO entries
         (uuid, agent, type, subject, tags, content, created_at, updated_at, deleted)
@@ -62,7 +63,7 @@ def add_entry(agent, content, type="note", subject=None, tags=None):
         type,
         subject,
         tags_json,
-        content,
+        serialized,
         now,
         now,
     ))
@@ -76,11 +77,12 @@ def update_entry(entry_id, new_content):
     conn = get_conn()
     cur = conn.cursor()
 
+    serialized = _serialize_content(new_content)
     cur.execute("""
         UPDATE entries
         SET content = ?, updated_at = ?
         WHERE id = ? AND deleted = 0
-    """, (new_content, datetime.utcnow().isoformat(), entry_id))
+    """, (serialized, datetime.utcnow().isoformat(), entry_id))
 
     conn.commit()
     conn.close()
@@ -115,17 +117,56 @@ def get_entries(agent=None, type=None, limit=None):
     rows = cur.fetchall()
     conn.close()
 
-    return [
-        {
+    results = []
+
+    for r in rows:
+        try:
+            payload = json.loads(r["content"]) if r["content"] else {}
+        except Exception:
+            payload = {}
+
+        results.append({
             "id": r["id"],
             "uuid": r["uuid"],
             "agent": r["agent"],
             "type": r["type"],
             "subject": r["subject"],
             "tags": json.loads(r["tags"]) if r["tags"] else [],
-            "text": r["content"],
+            "content": payload.get("content", []),          # ✅ list[str]
+            "schema_version": payload.get("schema_version", 1),
             "created_at": r["created_at"],
             "updated_at": r["updated_at"],
-        }
-        for r in rows
-    ]
+        })
+
+    return results
+
+
+
+def _serialize_content(content):
+    """
+    Storage invariant:
+    - DB always stores ONE JSON string
+    - JSON must contain ONLY user text in `content`
+    """
+    if isinstance(content, dict):
+        _validate_payload(content)
+        return json.dumps(content, ensure_ascii=False)
+
+    if isinstance(content, str):
+        # prevent accidental double-embedding
+        if content.strip().startswith("{"):
+            raise ValueError("Refusing to store raw JSON string as content")
+        return json.dumps({"content": [content], "schema_version": 1}, ensure_ascii=False)
+
+    raise ValueError("content must be dict or str")
+
+
+def _validate_payload(payload):
+    if "content" not in payload or not isinstance(payload["content"], list):
+        raise ValueError("payload.content must be a list")
+
+    for c in payload["content"]:
+        if not isinstance(c, str):
+            raise ValueError("content items must be strings")
+        if c.strip().startswith("{"):
+            raise ValueError("content must not contain JSON strings")

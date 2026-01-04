@@ -265,21 +265,16 @@ def build_subject_for_entry(ctx) -> str | None:
 
 
 def build_entry_payload(ctx):
-    """
-    Unified content payload stored as JSON string.
-    Always includes subject/domain/person/project fields if available.
-    """
-    record = {
+    return {
         "person": ctx.active_person.descriptors if getattr(ctx, "active_person", None) else None,
         "domain": {
             "domain": ctx.active_domain.domain,
             "subdomain": ctx.active_domain.subdomain,
         } if getattr(ctx, "active_domain", None) else None,
         "project": ctx.active_project.descriptors if getattr(ctx, "active_project", None) else None,
-        "content": ctx.collected_text,
-        "created_at": datetime.utcnow().isoformat(),
+        "content": list(ctx.collected_text),  # plain strings ONLY
+        "schema_version": 1,
     }
-    return json.dumps(record, ensure_ascii=False)
 
 
 def build_context(agent):
@@ -308,10 +303,6 @@ def user_confirms(text: str) -> bool:
         # Chinese
         "好", "好的", "是", "是的", "可以", "保存",
     }
-
-
-def user_confirms(text: str) -> bool:
-    return text.strip() in {"好", "好的", "是", "是的", "可以", "保存"}
 
 
 # -------------------------------------------------
@@ -519,9 +510,6 @@ def chat():
     # -------------------------------------------------
     # 0) Detect record content FIRST (draft-only)
     # -------------------------------------------------
-    def looks_like_record(text: str) -> bool:
-        return len(text) >= 10 and not text.endswith("?")
-
     if looks_like_record(user_message):
         ctx.collected_text.append(user_message)
 
@@ -680,7 +668,7 @@ def call_llm_simple(user_prompt: str) -> str:
         config={
             "temperature": 0.2,
             "top_p": 0.9,
-            "max_output_tokens": 1200,
+            "max_output_tokens": 1800,
         },
     )
     return (response.text or "").strip()
